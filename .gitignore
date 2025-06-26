@@ -1,0 +1,7 @@
+/backend/node_modules
+/backend/dist
+/frontend/menti-frontend/node_modules
+/frontend/menti-frontend/dist
+/backend/.env
+/frontend/menti-frontend/.env
+/frontend/menti-frontend/.env.local
