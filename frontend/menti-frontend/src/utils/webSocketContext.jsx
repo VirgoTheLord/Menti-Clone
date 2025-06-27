@@ -7,16 +7,14 @@ export const WebSocketProvider = ({ children }) => {
   const [connected, setConnected] = useState(false);
   const connectionCount = useRef(0);
   const retryCount = useRef(0);
-  const maxRetries = 3; // Limit retry attempts
-  const retryDelay = 5000; // 5 seconds between retries
+  const maxRetries = 3;
+  const retryDelay = 5000;
 
   const connectWebSocket = (roomId) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       connectionCount.current += 1;
       return;
     }
-
-    // Avoid connecting if already attempting a connection
     if (
       socketRef.current &&
       socketRef.current.readyState === WebSocket.CONNECTING
@@ -30,15 +28,15 @@ export const WebSocketProvider = ({ children }) => {
       return;
     }
 
-    const ws = new WebSocket("ws://192.168.1.23:5000");
+    const ws = new WebSocket("ws://localhost:5000");
     socketRef.current = ws;
-    window.WebSocketInstance = ws; // For access in components
+    window.WebSocketInstance = ws;
 
     ws.onopen = () => {
       console.log("WebSocket connected");
       setConnected(true);
       connectionCount.current += 1;
-      retryCount.current = 0; // Reset retry count on success
+      retryCount.current = 0;
     };
 
     ws.onclose = () => {
@@ -46,7 +44,6 @@ export const WebSocketProvider = ({ children }) => {
       setConnected(false);
       socketRef.current = null;
       window.WebSocketInstance = null;
-      // Attempt to reconnect if there are active components
       if (connectionCount.current > 0 && retryCount.current <= maxRetries) {
         setTimeout(() => connectWebSocket(roomId), retryDelay);
       }
@@ -54,12 +51,9 @@ export const WebSocketProvider = ({ children }) => {
 
     ws.onerror = (err) => {
       console.error("WebSocket error:", err);
-      // onclose will handle reconnection
     };
 
-    ws.onmessage = (event) => {
-      // Components handle messages directly
-    };
+    ws.onmessage = (event) => {};
   };
 
   const disconnectWebSocket = () => {
