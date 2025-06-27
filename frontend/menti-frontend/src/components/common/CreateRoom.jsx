@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import WebSocket, { WebSocketServer } from "ws";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -25,15 +26,19 @@ const CreateRoom = () => {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (roomName.trim() && roomCode.trim()) {
-      if (/^\d{4}-\d{4}$/.test(roomCode)) {
-        navigate(`/join-room/${roomCode}`);
-      } else {
-        alert("Invalid room code format. Please use XXXX-XXXX.");
-      }
-    } else {
+
+    if (!roomName.trim() || !roomCode.trim()) {
       alert("Please fill in both fields.");
+      return;
     }
+
+    if (!/^\d{4}-\d{4}$/.test(roomCode)) {
+      alert("Invalid room code format. Please use XXXX-XXXX.");
+      return;
+    }
+
+    // ✅ Redirect to JoinRoom with pre-filled room code
+    navigate(`/join-room/${roomCode}`);
   };
 
   return (

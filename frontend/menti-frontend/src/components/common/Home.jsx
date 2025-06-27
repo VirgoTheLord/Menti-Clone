@@ -13,7 +13,7 @@ const Home = () => {
     <div className="w-[100vw] h-[100vh] mx-auto">
       <div className="flex flex-col items-center justify-center h-full">
         <h1 className="text-4xl font-bold mb-4 overflow-hidden">
-          Welcome to Menti
+          Welcome to Mandi.com
         </h1>
         <p className="text-lg mb-8">
           Your interactive platform for real-time engagement.

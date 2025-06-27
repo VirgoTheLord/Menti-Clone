@@ -4,6 +4,7 @@ import axios from "axios";
 
 const JoinRoom = () => {
   const [roomCode, setRoomCode] = useState("");
+  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -15,10 +16,14 @@ const JoinRoom = () => {
     }
   }, [urlRoomCode]);
 
-  const validateRoomCode = async (code) => {
+  const validateRoomCode = async (code, name) => {
     try {
-      const res = await axios.get(
-        `http://localhost:5000/api/validate-room-code/${code}`
+      const res = await axios.post(
+        "http://localhost:5000/api/validate-room-code",
+        {
+          code,
+          name,
+        }
       );
       return res.data.valid;
     } catch (err) {
@@ -31,9 +36,10 @@ const JoinRoom = () => {
     setError("");
 
     const trimmedCode = roomCode.trim();
+    const trimmedName = name.trim();
 
-    if (!trimmedCode) {
-      setError("Please enter a room code.");
+    if (!trimmedCode || !trimmedName) {
+      setError("Please enter both name and room code.");
       return;
     }
 
@@ -45,16 +51,16 @@ const JoinRoom = () => {
     }
 
     setLoading(true);
-    const isValidRoom = await validateRoomCode(trimmedCode);
+    const isValidRoom = await validateRoomCode(trimmedCode, trimmedName);
     setLoading(false);
 
     if (!isValidRoom) {
-      setError("Invalid room code format or code not found.");
+      setError("Invalid room code or name already taken.");
       return;
     }
 
-    console.log("Joining room:", trimmedCode);
-    navigate(`/quiz/${trimmedCode}`);
+    console.log(`${trimmedName} joining room: ${trimmedCode}`);
+    navigate(`/quiz/${trimmedCode}?name=${encodeURIComponent(trimmedName)}`);
   };
 
   return (
@@ -75,6 +81,17 @@ const JoinRoom = () => {
         )}
 
         <div className="w-full">
+          <input
+            type="text"
+            placeholder="Enter your name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className={`w-full p-3 rounded-md border text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4 ${
+              error
+                ? "border-red-500 bg-red-900/20"
+                : "border-gray-300 bg-blue-900/20"
+            }`}
+          />
           <input
             type="text"
             placeholder="Enter Room Code"

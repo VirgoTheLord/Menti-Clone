@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
+// import WebSocket from "ws";
 
 const Quiz = () => {
   const { id: roomCode } = useParams();
@@ -10,15 +11,25 @@ const Quiz = () => {
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
+  const [socket, setSocket] = useState();
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [timerActive, setTimerActive] = useState(false);
+
+  const searchParams = new URLSearchParams(window.location.search);
+  const name = searchParams.get("name");
 
   const fetchQuestion = async () => {
     try {
-      const res = await axios.get(
-        `http://localhost:5000/api/fetch-question/${qid}`
-      );
-      setQuestion(res.data);
+      const [questionRes, timerRes] = await Promise.all([
+        axios.get(`http://localhost:5000/api/fetch-question/${qid}`),
+        axios.get(`http://localhost:5000/api/quiz/timer-update`),
+      ]);
+
+      setQuestion(questionRes.data);
+      setTimeLeft(timerRes.data.timer);
       setSelectedAnswer("");
       setShowResult(false);
+      setTimerActive(true);
     } catch (err) {
       if (err.response?.status === 404) {
         setQuizCompleted(true);
@@ -28,17 +39,29 @@ const Quiz = () => {
     }
   };
 
-  const handleSubmit = async () => {
-    if (!selectedAnswer) {
-      alert("Please select an answer.");
-      return;
+  const setScores = async (isCorrect) => {
+    try {
+      await axios.post("http://localhost:5000/api/quiz/set-scores", {
+        roomCode,
+        playerName: name,
+        timeTaken: 10 - timeLeft || 0,
+        isCorrect,
+      });
+    } catch (err) {
+      console.error("Error updating score:", err);
     }
+  };
+
+  const handleSubmit = async () => {
+    if (showResult) return; // Prevent double submission
+
+    setTimerActive(false); // Stop countdown
 
     try {
       const res = await axios.post(
         "http://localhost:5000/api/quiz/submit-answer",
         {
-          answer: selectedAnswer,
+          answer: selectedAnswer || " ",
           qid,
         }
       );
@@ -46,14 +69,31 @@ const Quiz = () => {
       setResult(res.data);
       setShowResult(true);
 
+      await setScores(res.data.isCorrect);
+
       setTimeout(() => {
         setQid((prev) => prev + 1);
       }, 2000);
     } catch (err) {
       console.error("Error submitting answer:", err);
-      alert("Error submitting your answer. Please try again.");
     }
   };
+
+  useEffect(() => {
+    let interval;
+    if (timerActive && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    }
+
+    if (timeLeft === 0 && timerActive) {
+      setTimerActive(false);
+      handleSubmit();
+    }
+
+    return () => clearInterval(interval);
+  }, [timeLeft, timerActive]);
 
   useEffect(() => {
     if (!quizCompleted) {
@@ -75,10 +115,16 @@ const Quiz = () => {
     <div className="w-full h-screen flex items-center justify-center bg-gray-100">
       <div className="bg-white w-full max-w-2xl rounded-lg shadow-lg p-8">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Room: {roomCode}</h1>
+          <h1 className="text-3xl font-bold text-gray-800 overflow-hidden">
+            Room: {roomCode}
+          </h1>
         </div>
 
         <h2 className="text-xl font-semibold mb-4">Question {qid}</h2>
+        <div className="mb-4 text-right text-gray-600 font-mono">
+          Time left: <span className="font-bold text-red-600">{timeLeft}s</span>
+        </div>
+
         <p className="text-lg mb-6">{question.text}</p>
 
         <div className="space-y-4 mb-6">

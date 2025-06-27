@@ -6,7 +6,7 @@ const Navbar = () => {
     <section>
       <nav>
         <div className="flex justify-between items-center p-4 bg-gray-800 text-white">
-          <div className="text-lg font-bold">Menti</div>
+          <div className="text-lg font-bold">Mandi</div>
           <ul className="flex space-x-4">
             <li>
               <a href="/" className="">
