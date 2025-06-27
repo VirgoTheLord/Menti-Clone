@@ -1,37 +1,62 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import axios from "axios";
+import { useWebSocket } from "../../utils/webSocketContext";
 
 const JoinRoom = () => {
   const [roomCode, setRoomCode] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [players, setPlayers] = useState([]);
   const navigate = useNavigate();
   const { id: urlRoomCode } = useParams();
+  const { connectWebSocket, sendMessage, connected } = useWebSocket();
 
   useEffect(() => {
-    if (urlRoomCode) {
-      setRoomCode(urlRoomCode);
-    }
+    if (urlRoomCode) setRoomCode(urlRoomCode);
   }, [urlRoomCode]);
 
-  const validateRoomCode = async (code, name) => {
-    try {
-      const res = await axios.post(
-        "http://localhost:5000/api/validate-room-code",
-        {
-          code,
-          name,
-        }
-      );
-      return res.data.valid;
-    } catch (err) {
-      return false;
-    }
-  };
+  useEffect(() => {
+    const handleWebSocketMessage = (message) => {
+      try {
+        const data = JSON.parse(message.data);
 
-  const handleSubmit = async (e) => {
+        if (data.type === "validation-response") {
+          const { valid, message } = data.payload;
+          if (!valid) {
+            setError(message);
+            setLoading(false);
+          } else {
+            // Proceed to join and navigate
+            sendMessage("join", {
+              roomCode,
+              playerName: name,
+            });
+
+            navigate(`/quiz/${roomCode}?name=${encodeURIComponent(name)}`);
+          }
+        }
+
+        if (data.type === "user-joined") {
+          setPlayers(data.payload.players);
+        }
+      } catch (err) {
+        console.error("WebSocket message error:", err);
+      }
+    };
+
+    if (connected && window.WebSocketInstance) {
+      window.WebSocketInstance.onmessage = handleWebSocketMessage;
+    }
+
+    return () => {
+      if (connected && window.WebSocketInstance) {
+        window.WebSocketInstance.onmessage = null;
+      }
+    };
+  }, [connected, name, roomCode, navigate, sendMessage]);
+
+  const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
 
@@ -51,16 +76,24 @@ const JoinRoom = () => {
     }
 
     setLoading(true);
-    const isValidRoom = await validateRoomCode(trimmedCode, trimmedName);
-    setLoading(false);
+    connectWebSocket(trimmedCode);
 
-    if (!isValidRoom) {
-      setError("Invalid room code or name already taken.");
-      return;
-    }
+    const waitForConnection = () => {
+      const socket = window.WebSocketInstance;
+      if (socket?.readyState === WebSocket.OPEN) {
+        sendMessage("validate-room", {
+          code: trimmedCode,
+          name: trimmedName,
+        });
+      } else if (socket?.readyState === WebSocket.CLOSED) {
+        setError("Failed to connect to WebSocket. Please try again.");
+        setLoading(false);
+      } else {
+        setTimeout(waitForConnection, 100);
+      }
+    };
 
-    console.log(`${trimmedName} joining room: ${trimmedCode}`);
-    navigate(`/quiz/${trimmedCode}?name=${encodeURIComponent(trimmedName)}`);
+    waitForConnection();
   };
 
   return (
@@ -105,6 +138,19 @@ const JoinRoom = () => {
           />
           {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
         </div>
+
+        <p>WebSocket Status: {connected ? "Connected" : "Disconnected"}</p>
+
+        {players.length > 0 && (
+          <div>
+            <p>Players in room:</p>
+            <ul>
+              {players.map((player, index) => (
+                <li key={index}>{player}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         <button
           onClick={handleSubmit}

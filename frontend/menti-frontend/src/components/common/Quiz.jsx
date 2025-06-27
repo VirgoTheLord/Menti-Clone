@@ -1,83 +1,85 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
-import axios from "axios";
-// import WebSocket from "ws";
+import { useParams, useLocation } from "react-router-dom";
+import { useWebSocket } from "../../utils/webSocketContext";
 
 const Quiz = () => {
   const { id: roomCode } = useParams();
+  const { search } = useLocation();
+  const queryParams = new URLSearchParams(search);
+  const playerName = queryParams.get("name");
+  const { connectWebSocket, disconnectWebSocket, sendMessage, connected } =
+    useWebSocket();
   const [qid, setQid] = useState(1);
   const [question, setQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
-  const [socket, setSocket] = useState();
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerActive, setTimerActive] = useState(false);
+  const [players, setPlayers] = useState([]); // Track players in the room
 
-  const searchParams = new URLSearchParams(window.location.search);
-  const name = searchParams.get("name");
+  useEffect(() => {
+    if (roomCode && playerName) {
+      connectWebSocket(roomCode);
 
-  const fetchQuestion = async () => {
-    try {
-      const [questionRes, timerRes] = await Promise.all([
-        axios.get(`http://localhost:5000/api/fetch-question/${qid}`),
-        axios.get(`http://localhost:5000/api/quiz/timer-update`),
-      ]);
-
-      setQuestion(questionRes.data);
-      setTimeLeft(timerRes.data.timer);
-      setSelectedAnswer("");
-      setShowResult(false);
-      setTimerActive(true);
-    } catch (err) {
-      if (err.response?.status === 404) {
-        setQuizCompleted(true);
-      } else {
-        console.error("Error fetching question:", err);
-      }
-    }
-  };
-
-  const setScores = async (isCorrect) => {
-    try {
-      await axios.post("http://localhost:5000/api/quiz/set-scores", {
-        roomCode,
-        playerName: name,
-        timeTaken: 10 - timeLeft || 0,
-        isCorrect,
-      });
-    } catch (err) {
-      console.error("Error updating score:", err);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (showResult) return; // Prevent double submission
-
-    setTimerActive(false); // Stop countdown
-
-    try {
-      const res = await axios.post(
-        "http://localhost:5000/api/quiz/submit-answer",
-        {
-          answer: selectedAnswer || " ",
-          qid,
+      const handleWebSocketMessage = (message) => {
+        const data = JSON.parse(message.data);
+        if (data.type === "fetch-question-response") {
+          setQuestion(data.payload);
+          setTimeLeft(10);
+          setSelectedAnswer("");
+          setShowResult(false);
+          setTimerActive(true);
+        } else if (data.type === "submit-answer-response") {
+          setResult(data.payload);
+          setShowResult(true);
+          setTimerActive(false);
+          sendMessage("set-scores", {
+            roomCode,
+            playerName,
+            timeTaken: 10 - timeLeft || 0,
+            isCorrect: data.payload.isCorrect,
+          });
+          setTimeout(() => {
+            setQid((prev) => prev + 1);
+          }, 2000);
+        } else if (data.type === "score-update") {
+          console.log("Score update:", data.payload);
+        } else if (data.type === "user-joined") {
+          setPlayers(data.payload.players);
+        } else if (data.type === "error") {
+          if (data.payload.message === "Question not found") {
+            setQuizCompleted(true);
+            disconnectWebSocket(); // ✅ only here
+          } else {
+            console.error("WebSocket error:", data.payload.message);
+          }
         }
-      );
+      };
 
-      setResult(res.data);
-      setShowResult(true);
+      const socket = window.WebSocketInstance;
+      if (connected && socket) {
+        socket.onmessage = handleWebSocketMessage;
+        sendMessage("fetch-question", { qid: String(qid) });
+      }
 
-      await setScores(res.data.isCorrect);
-
-      setTimeout(() => {
-        setQid((prev) => prev + 1);
-      }, 2000);
-    } catch (err) {
-      console.error("Error submitting answer:", err);
+      return () => {
+        if (window.WebSocketInstance) {
+          window.WebSocketInstance.onmessage = null;
+        }
+        // ❌ No disconnect here unless quizCompleted
+      };
     }
-  };
+  }, [
+    roomCode,
+    playerName,
+    connected,
+    qid,
+    sendMessage,
+    connectWebSocket,
+    disconnectWebSocket,
+  ]);
 
   useEffect(() => {
     let interval;
@@ -95,11 +97,15 @@ const Quiz = () => {
     return () => clearInterval(interval);
   }, [timeLeft, timerActive]);
 
-  useEffect(() => {
-    if (!quizCompleted) {
-      fetchQuestion();
-    }
-  }, [qid]);
+  const handleSubmit = () => {
+    if (showResult) return; // Prevent double submission
+
+    setTimerActive(false); // Stop countdown
+    sendMessage("submit-answer", {
+      qid,
+      answer: selectedAnswer || " ",
+    });
+  };
 
   if (quizCompleted) {
     return (
@@ -118,6 +124,18 @@ const Quiz = () => {
           <h1 className="text-3xl font-bold text-gray-800 overflow-hidden">
             Room: {roomCode}
           </h1>
+          <p>Player: {playerName}</p>
+          <p>WebSocket Status: {connected ? "Connected" : "Disconnected"}</p>
+          {players.length > 0 && (
+            <div>
+              <p>Players in room:</p>
+              <ul>
+                {players.map((player, index) => (
+                  <li key={index}>{player}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <h2 className="text-xl font-semibold mb-4">Question {qid}</h2>
