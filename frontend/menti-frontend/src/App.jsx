@@ -7,6 +7,10 @@ import CreateRoom from "./components/common/CreateRoom";
 import JoinRoom from "./components/common/JoinRoom";
 import Quiz from "./components/common/Quiz";
 import { WebSocketProvider } from "./utils/webSocketContext";
+import CreatorLayout from "./components/layout/CreatorLayout";
+import CreatorHome from "./components/admin/CreatorHome";
+import CreateAdminRoom from "./components/admin/CreateAdminRoom";
+import QuizAdmin from "./components/admin/QuizAdmin";
 
 const App = () => {
   return (
@@ -20,6 +24,11 @@ const App = () => {
             <Route path="join-room" element={<JoinRoom />} />
             <Route path="join-room/:id" element={<JoinRoom />} />
             <Route path="quiz/:id" element={<Quiz />} />
+          </Route>
+          <Route path="/create" element={<CreatorLayout />}>
+            <Route index element={<CreatorHome />} />
+            <Route path="room" element={<CreateAdminRoom />} />
+            <Route path="quiz/:id" element={<QuizAdmin />} />
           </Route>
         </Routes>
       </BrowserRouter>

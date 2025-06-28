@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
 import { useWebSocket } from "../../utils/webSocketContext";
 
 const Quiz = () => {
@@ -7,70 +7,137 @@ const Quiz = () => {
   const { search } = useLocation();
   const queryParams = new URLSearchParams(search);
   const playerName = queryParams.get("name");
+  const navigate = useNavigate();
+
   const { connectWebSocket, disconnectWebSocket, sendMessage, connected } =
     useWebSocket();
+
   const [qid, setQid] = useState(1);
   const [question, setQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState("");
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState(null);
   const [quizCompleted, setQuizCompleted] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(10);
   const [timerActive, setTimerActive] = useState(false);
-  const [players, setPlayers] = useState([]); // Track players in the room
+  const [players, setPlayers] = useState([]);
+  const [totalQuestions, setTotalQuestions] = useState(null);
 
+  // NEW: Leaderboard data
+  const [leaderboard, setLeaderboard] = useState(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+
+  // Restore saved progress from localStorage on mount
   useEffect(() => {
-    if (roomCode && playerName) {
-      connectWebSocket(roomCode);
-
-      const handleWebSocketMessage = (message) => {
-        const data = JSON.parse(message.data);
-        if (data.type === "fetch-question-response") {
-          setQuestion(data.payload);
-          setTimeLeft(10);
-          setSelectedAnswer("");
-          setShowResult(false);
-          setTimerActive(true);
-        } else if (data.type === "submit-answer-response") {
-          setResult(data.payload);
-          setShowResult(true);
-          setTimerActive(false);
-          sendMessage("set-scores", {
-            roomCode,
-            playerName,
-            timeTaken: 10 - timeLeft || 0,
-            isCorrect: data.payload.isCorrect,
-          });
-          setTimeout(() => {
-            setQid((prev) => prev + 1);
-          }, 2000);
-        } else if (data.type === "score-update") {
-          console.log("Score update:", data.payload);
-        } else if (data.type === "user-joined") {
-          setPlayers(data.payload.players);
-        } else if (data.type === "error") {
-          if (data.payload.message === "Question not found") {
-            setQuizCompleted(true);
-            disconnectWebSocket(); // ✅ only here
-          } else {
-            console.error("WebSocket error:", data.payload.message);
-          }
-        }
-      };
-
-      const socket = window.WebSocketInstance;
-      if (connected && socket) {
-        socket.onmessage = handleWebSocketMessage;
-        sendMessage("fetch-question", { qid: String(qid) });
+    const saved = JSON.parse(localStorage.getItem(`quiz-${roomCode}`));
+    if (saved) {
+      if (saved.quizCompleted) {
+        setQuizCompleted(true);
+        setShowLeaderboard(true); // Show leaderboard if quiz completed
+      } else {
+        setQid(saved.qid || 1);
+        setTimeLeft(saved.timeLeft || 10);
+        setSelectedAnswer(saved.selectedAnswer || "");
+        setTotalQuestions(saved.totalQuestions || null);
       }
-
-      return () => {
-        if (window.WebSocketInstance) {
-          window.WebSocketInstance.onmessage = null;
-        }
-        // ❌ No disconnect here unless quizCompleted
-      };
     }
+  }, [roomCode]);
+
+  // WebSocket setup and message handling
+  useEffect(() => {
+    if (!roomCode || !playerName) return;
+
+    connectWebSocket(roomCode);
+
+    const handleMessage = (message) => {
+      const data = JSON.parse(message.data);
+
+      if (data.type === "fetch-question-response") {
+        setQuestion(data.payload);
+        setTimeLeft(10);
+        setSelectedAnswer("");
+        setShowResult(false);
+        setTimerActive(true);
+        if (data.totalQuestions) setTotalQuestions(data.totalQuestions);
+      } else if (data.type === "submit-answer-response") {
+        setResult(data.payload);
+        setShowResult(true);
+        setTimerActive(false);
+
+        sendMessage("set-scores", {
+          roomCode,
+          playerName,
+          timeTaken: 10 - timeLeft || 0,
+          isCorrect: data.payload.isCorrect,
+        });
+
+        const nextQid = qid + 1;
+        const completed = totalQuestions && nextQid > totalQuestions;
+
+        const savedProgress = {
+          qid: nextQid,
+          quizCompleted: completed,
+          timeLeft: 10,
+          selectedAnswer: "",
+          totalQuestions,
+        };
+        localStorage.setItem(`quiz-${roomCode}`, JSON.stringify(savedProgress));
+
+        if (completed) {
+          setQuizCompleted(true);
+          setShowLeaderboard(true); // Show leaderboard now
+          // Stop timer and disconnect handled below
+          disconnectWebSocket();
+          return;
+        }
+
+        setTimeout(() => {
+          setQid(nextQid);
+        }, 2000);
+      } else if (data.type === "user-joined") {
+        setPlayers(data.payload.players);
+      } else if (data.type === "score-update") {
+        console.log("Score update:", data.payload);
+        // You could optionally fetch leaderboard here if needed
+      } else if (data.type === "leaderboard-update") {
+        // NEW: receive updated leaderboard from server
+        // Expected format: [{ playerName: string, score: number }, ...]
+        setLeaderboard(data.payload);
+      } else if (data.type === "error") {
+        if (
+          data.payload.message === "quiz-ended" ||
+          data.payload.message === "Question not found"
+        ) {
+          setQuizCompleted(true);
+          setShowLeaderboard(true);
+          disconnectWebSocket();
+          localStorage.setItem(
+            `quiz-${roomCode}`,
+            JSON.stringify({
+              qid,
+              quizCompleted: true,
+              timeLeft: 0,
+              selectedAnswer: "",
+              totalQuestions,
+            })
+          );
+        } else {
+          console.error("WebSocket error:", data.payload.message);
+        }
+      }
+    };
+
+    const socket = window.WebSocketInstance;
+    if (connected && socket) {
+      socket.onmessage = handleMessage;
+      sendMessage("fetch-question", { qid: String(qid) });
+    }
+
+    return () => {
+      if (window.WebSocketInstance) {
+        window.WebSocketInstance.onmessage = null;
+      }
+    };
   }, [
     roomCode,
     playerName,
@@ -79,8 +146,10 @@ const Quiz = () => {
     sendMessage,
     connectWebSocket,
     disconnectWebSocket,
+    totalQuestions,
   ]);
 
+  // Timer countdown logic
   useEffect(() => {
     let interval;
     if (timerActive && timeLeft > 0) {
@@ -98,23 +167,76 @@ const Quiz = () => {
   }, [timeLeft, timerActive]);
 
   const handleSubmit = () => {
-    if (showResult) return; // Prevent double submission
-
-    setTimerActive(false); // Stop countdown
+    if (showResult) return;
+    setTimerActive(false);
     sendMessage("submit-answer", {
       qid,
       answer: selectedAnswer || " ",
     });
   };
 
-  if (quizCompleted) {
+  // NEW: Handler for ending quiz after leaderboard
+  const handleEndQuiz = () => {
+    setShowLeaderboard(false);
+    setQuizCompleted(false);
+    setQid(1);
+    setQuestion(null);
+    setSelectedAnswer("");
+    setShowResult(false);
+    setResult(null);
+    setTimeLeft(10);
+    setTimerActive(false);
+    setPlayers([]);
+    setLeaderboard(null);
+    localStorage.removeItem(`quiz-${roomCode}`);
+    navigate("/");
+    disconnectWebSocket();
+  };
+
+  // Final screen: Show leaderboard after quiz completes
+  if (quizCompleted && showLeaderboard) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <h1 className="text-2xl font-bold">Quiz Completed</h1>
+      <div className="w-full h-screen flex items-center justify-center bg-gray-100 p-8">
+        <div className="bg-white max-w-3xl rounded-lg shadow-lg p-8 w-full">
+          <h1 className="text-3xl font-bold mb-6 text-center">Leaderboard</h1>
+
+          {leaderboard && leaderboard.length > 0 ? (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-gray-300">
+                  <th className="py-2">Player</th>
+                  <th className="py-2">Score</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leaderboard
+                  .sort((a, b) => b.score - a.score)
+                  .map(({ name, score }, idx) => (
+                    <tr key={name}>
+                      <td className="py-2">{name}</td>
+                      <td className="py-2">{score}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          ) : (
+            <p>No scores yet.</p>
+          )}
+
+          <div className="text-center mt-8">
+            <button
+              onClick={handleEndQuiz}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-8 rounded-md"
+            >
+              End Quiz & Return Home
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
+  // Loading fallback
   if (!question) return <div>Loading question...</div>;
 
   return (

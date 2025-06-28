@@ -5,7 +5,6 @@ const quizRouter = require("./routes/quizRoute");
 const connectDB = require("./config/db");
 const http = require("http");
 const questions = require("./data/questions");
-const scores = require("./models/scoreModel");
 
 const app = express();
 app.use(cors());
@@ -19,6 +18,8 @@ const wss = new WebSocketServer({ server });
 
 const rooms = [];
 const users = {};
+const roomScores = {};
+
 const calculateScore = (timeTaken) => {
   const totalTime = 10;
   const rough = totalTime - timeTaken;
@@ -120,6 +121,7 @@ wss.on("connection", (socket) => {
         );
       });
     }
+
     if (data.type === "validate-room") {
       const { code, name } = data.payload;
 
@@ -183,17 +185,19 @@ wss.on("connection", (socket) => {
           JSON.stringify({
             type: "fetch-question-response",
             payload: safeQuestion,
+            totalQuestions: questions.length,
           })
         );
       } else {
         socket.send(
           JSON.stringify({
             type: "error",
-            payload: { message: "Question not found" },
+            payload: { message: "quiz-ended" },
           })
         );
       }
     }
+
     if (data.type === "submit-answer") {
       const { answer, qid } = data.payload;
       const question = questions.find((q) => q.id === qid);
@@ -234,64 +238,128 @@ wss.on("connection", (socket) => {
         );
       }
 
-      try {
-        let exist = await scores.findOne({ roomCode, playerName });
-        if (exist) {
-          if (isCorrect) {
-            const score = calculateScore(timeTaken);
-            exist.score += score;
-            exist.timeTaken += timeTaken || 0;
-            await exist.save();
-            socket.send(
-              JSON.stringify({
-                type: "score-update",
-                payload: { message: "Score updated successfully" },
-              })
-            );
-          } else {
-            exist.timeTaken += timeTaken || 0;
-            await exist.save();
-            socket.send(
-              JSON.stringify({
-                type: "score-update",
-                payload: { message: "Answer is Wrong." },
-              })
-            );
-          }
-        } else {
-          const score = calculateScore(timeTaken);
-          const newScore = new scores({
-            roomCode,
-            playerName,
-            timeTaken: timeTaken || 0,
-            score: isCorrect ? score : 0,
-          });
-          await newScore.save();
-          socket.send(
-            JSON.stringify({
-              type: "score-update",
-              payload: { message: "Score added successfully" },
-            })
-          );
-        }
-      } catch (error) {
-        console.error("Error setting scores:", error);
-        socket.send(
+      if (!roomScores[roomCode]) {
+        roomScores[roomCode] = {};
+      }
+
+      const currentPlayer = roomScores[roomCode][playerName] || {
+        score: 0,
+        timeTaken: 0,
+      };
+
+      if (isCorrect) {
+        currentPlayer.score += calculateScore(timeTaken);
+      }
+      currentPlayer.timeTaken += timeTaken;
+
+      roomScores[roomCode][playerName] = currentPlayer;
+
+      socket.send(
+        JSON.stringify({
+          type: "score-update",
+          payload: {
+            message: isCorrect
+              ? "Score updated successfully"
+              : "Answer is Wrong.",
+          },
+        })
+      );
+
+      const leaderboard = Object.entries(roomScores[roomCode])
+        .map(([name, info]) => ({ name, ...info }))
+        .sort((a, b) => b.score - a.score);
+
+      liveRooms[roomCode]?.forEach((client) => {
+        client.send(
           JSON.stringify({
-            type: "error",
-            payload: { message: "Internal server error" },
+            type: "leaderboard-update",
+            payload: leaderboard,
           })
         );
+      });
+    }
+    // ADMIN STARTS QUIZ
+    if (data.type === "admin-start") {
+      const { roomCode } = data.payload;
+      if (!roomCode || !liveRooms[roomCode]) return;
+
+      console.log(`Admin started quiz for room ${roomCode}`);
+
+      // Broadcast quiz started
+      liveRooms[roomCode].forEach((client) => {
+        client.send(
+          JSON.stringify({
+            type: "quiz-started",
+            payload: { message: "Quiz has been started!" },
+          })
+        );
+      });
+
+      // Send first question - assuming question id 1
+      const question = questions.find((q) => q.id === 1);
+      if (question) {
+        const { correctAnswer, ...safeQuestion } = question;
+        liveRooms[roomCode].forEach((client) => {
+          client.send(
+            JSON.stringify({
+              type: "new-question",
+              payload: safeQuestion,
+              totalQuestions: questions.length,
+            })
+          );
+        });
       }
+    }
+
+    // ADMIN SENDS NEXT QUESTION
+    if (data.type === "admin-next-question") {
+      const { roomCode, qid } = data.payload;
+      const question = questions.find((q) => q.id === qid);
+
+      if (!roomCode || !question) return;
+
+      const { correctAnswer, ...safeQuestion } = question;
+
+      liveRooms[roomCode].forEach((client) => {
+        client.send(
+          JSON.stringify({
+            type: "new-question",
+            payload: safeQuestion,
+            totalQuestions: questions.length,
+          })
+        );
+      });
+
+      console.log(`Sent question ${qid} to room ${roomCode}`);
+    }
+
+    // ADMIN ENDS QUIZ
+    if (data.type === "admin-end") {
+      const { roomCode } = data.payload;
+      if (!roomCode || !liveRooms[roomCode]) return;
+
+      liveRooms[roomCode].forEach((client) => {
+        client.send(
+          JSON.stringify({
+            type: "quiz-ended",
+            payload: { message: "The quiz has ended!" },
+          })
+        );
+      });
+
+      console.log(`Quiz ended in room ${roomCode}`);
     }
   });
 
   socket.on("close", () => {
-    if (socket.roomCode && liveRooms[socket.roomCode]) {
-      liveRooms[socket.roomCode] = liveRooms[socket.roomCode].filter(
-        (s) => s !== socket
-      );
-      console.log(`Socket left room ${socket.roomCode}`);
+    const { roomCode } = socket;
+    if (roomCode && liveRooms[roomCode]) {
+      liveRooms[roomCode] = liveRooms[roomCode].filter((s) => s !== socket);
+      if (liveRooms[roomCode].length === 0) {
+        delete liveRooms[roomCode];
+        delete roomScores[roomCode];
+      }
+      console.log(`Socket left room ${roomCode}`);
     }
   });
 });
