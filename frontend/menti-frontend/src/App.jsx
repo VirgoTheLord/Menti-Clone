@@ -6,7 +6,7 @@ import UserLayout from "./components/layout/UserLayout";
 import CreateRoom from "./components/common/CreateRoom";
 import JoinRoom from "./components/common/JoinRoom";
 import Quiz from "./components/common/Quiz";
-import { WebSocketProvider } from "./utils/webSocketContext";
+import { WebSocketProvider } from "./utils/websocket/webSocketContext";
 import CreatorLayout from "./components/layout/CreatorLayout";
 import CreatorHome from "./components/admin/CreatorHome";
 import CreateAdminRoom from "./components/admin/CreateAdminRoom";
