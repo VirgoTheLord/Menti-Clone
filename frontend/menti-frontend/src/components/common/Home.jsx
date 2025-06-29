@@ -3,9 +3,6 @@ import { useNavigate } from "react-router-dom";
 
 const Home = () => {
   const navigate = useNavigate();
-  const handleCreateRoom = () => {
-    navigate("/create-room");
-  };
   const handleJoinRoom = () => {
     navigate("/join-room");
   };
@@ -22,12 +19,6 @@ const Home = () => {
           Your interactive platform for real-time engagement.
         </p>
         <div className="flex space-x-4">
-          <button
-            onClick={handleCreateRoom}
-            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-          >
-            Create Room
-          </button>
           <button
             onClick={handleJoinRoom}
             className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"

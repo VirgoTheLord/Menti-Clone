@@ -38,20 +38,56 @@ const Quiz = () => {
   const [leaderboard, setLeaderboard] = useState(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
+  // Function to save current state to localStorage
+  const saveGameState = (updates = {}) => {
+    const currentState = {
+      qid,
+      question,
+      quizCompleted,
+      timeLeft,
+      selectedAnswer,
+      totalQuestions,
+      quizStarted,
+      showResult,
+      waitingForNext,
+      timestamp: Date.now(), // Add timestamp to track when state was saved
+      ...updates,
+    };
+
+    localStorage.setItem(`quiz-${roomCode}`, JSON.stringify(currentState));
+  };
+
+  // Function to clear game state
+  const clearGameState = () => {
+    localStorage.removeItem(`quiz-${roomCode}`);
+  };
+
+  // Load saved state only if it's recent (within last 30 seconds)
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem(`quiz-${roomCode}`));
-    if (saved) {
-      if (saved.quizCompleted) {
-        setQuizCompleted(true);
-        setShowLeaderboard(true);
+    if (saved && saved.timestamp) {
+      const timeSinceLastSave = Date.now() - saved.timestamp;
+      const maxAllowedAge = 30000; // 30 seconds
+
+      // Only restore state if it's recent
+      if (timeSinceLastSave < maxAllowedAge) {
+        if (saved.quizCompleted) {
+          setQuizCompleted(true);
+          setShowLeaderboard(true);
+        } else {
+          setQid(saved.qid || 1);
+          setTimeLeft(saved.timeLeft || 10);
+          setSelectedAnswer(saved.selectedAnswer || "");
+          setTotalQuestions(saved.totalQuestions || null);
+          setQuizStarted(saved.quizStarted || false);
+          setWaitingForStart(!saved.quizStarted);
+          setWaitingForNext(saved.waitingForNext || false);
+          setShowResult(saved.showResult || false);
+          if (saved.question) setQuestion(saved.question);
+        }
       } else {
-        setQid(saved.qid || 1);
-        setTimeLeft(saved.timeLeft || 10);
-        setSelectedAnswer(saved.selectedAnswer || "");
-        setTotalQuestions(saved.totalQuestions || null);
-        setQuizStarted(saved.quizStarted || false);
-        setWaitingForStart(!saved.quizStarted);
-        if (saved.question) setQuestion(saved.question);
+        // Clear old state
+        clearGameState();
       }
     }
   }, [roomCode]);
@@ -67,9 +103,11 @@ const Quiz = () => {
           case "quiz-started":
             setQuizStarted(true);
             setWaitingForStart(false);
+            saveGameState({ quizStarted: true, waitingForStart: false });
             break;
 
           case "new-question":
+            // Reset all question-related state for new question
             setQuestion(data.payload);
             setQid(data.payload.id);
             setTimeLeft(10);
@@ -81,18 +119,20 @@ const Quiz = () => {
             setQuizStarted(true);
             setWaitingForStart(false);
             if (data.totalQuestions) setTotalQuestions(data.totalQuestions);
-            localStorage.setItem(
-              `quiz-${roomCode}`,
-              JSON.stringify({
-                qid: data.payload.id,
-                question: data.payload,
-                quizCompleted: false,
-                timeLeft: 10,
-                selectedAnswer: "",
-                totalQuestions: data.totalQuestions,
-                quizStarted: true,
-              })
-            );
+
+            // Save the fresh state
+            saveGameState({
+              qid: data.payload.id,
+              question: data.payload,
+              quizCompleted: false,
+              timeLeft: 10,
+              selectedAnswer: "",
+              totalQuestions: data.totalQuestions,
+              quizStarted: true,
+              showResult: false,
+              waitingForNext: false,
+              timerActive: true,
+            });
             break;
 
           case "submit-answer-response":
@@ -100,6 +140,14 @@ const Quiz = () => {
             setShowResult(true);
             setTimerActive(false);
             setWaitingForNext(true);
+
+            saveGameState({
+              showResult: true,
+              waitingForNext: true,
+              timerActive: false,
+              result: data.payload,
+            });
+
             sendMessage("set-scores", {
               roomCode,
               playerName,
@@ -112,21 +160,36 @@ const Quiz = () => {
             setQuizCompleted(true);
             setShowLeaderboard(true);
             setTimerActive(false);
-            localStorage.setItem(
-              `quiz-${roomCode}`,
-              JSON.stringify({
-                qid,
-                quizCompleted: true,
-                timeLeft: 0,
-                selectedAnswer: "",
-                totalQuestions,
-                quizStarted: true,
-              })
-            );
+
+            saveGameState({
+              quizCompleted: true,
+              showLeaderboard: true,
+              timerActive: false,
+            });
             break;
 
           case "user-joined":
-            setPlayers(data.payload.players.filter((p) => p !== "__admin__"));
+            const activePlayers = data.payload.players.filter(
+              (p) => p !== "__admin__" && !p.startsWith("admin_")
+            );
+            setPlayers(activePlayers);
+            console.log(`${data.payload.playerName} joined the room`);
+            break;
+
+          case "user-left":
+            const remainingPlayers = data.payload.players.filter(
+              (p) => p !== "__admin__" && !p.startsWith("admin_")
+            );
+            setPlayers(remainingPlayers);
+            console.log(`${data.payload.playerName} left the room`);
+            break;
+
+          case "quiz-reset":
+            // Clear all state when quiz is reset
+            clearGameState();
+            if (data.payload.shouldReconnect) {
+              navigate(`/join-room?code=${roomCode}`);
+            }
             break;
 
           case "leaderboard-update":
@@ -164,10 +227,18 @@ const Quiz = () => {
     timeLeft,
   ]);
 
+  // Timer effect with state saving
   useEffect(() => {
     let interval;
     if (timerActive && timeLeft > 0) {
-      interval = setInterval(() => setTimeLeft((t) => t - 1), 1000);
+      interval = setInterval(() => {
+        setTimeLeft((t) => {
+          const newTime = t - 1;
+          // Save state every second during active timer
+          saveGameState({ timeLeft: newTime });
+          return newTime;
+        });
+      }, 1000);
     }
     if (timeLeft === 0 && timerActive) {
       setTimerActive(false);
@@ -185,11 +256,49 @@ const Quiz = () => {
   };
 
   const handleEndQuiz = () => {
-    localStorage.removeItem(`quiz-${roomCode}`);
+    // Send leave message before cleaning up
+    if (connected && roomCode && playerName) {
+      sendMessage("leave", { roomCode, playerName });
+    }
+
+    clearGameState();
     setShowLeaderboard(false);
     disconnectWebSocket();
     navigate("/");
   };
+
+  // Handle component cleanup and user leaving
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Send leave message when user closes tab/refreshes
+      if (connected && roomCode && playerName) {
+        sendMessage("leave", { roomCode, playerName });
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+
+      // Send leave message when component unmounts (navigation)
+      if (connected && roomCode && playerName) {
+        sendMessage("leave", { roomCode, playerName });
+      }
+
+      // Only clear state if quiz is not in progress or user is intentionally leaving
+      if (quizCompleted || !quizStarted) {
+        clearGameState();
+      }
+    };
+  }, [
+    connected,
+    roomCode,
+    playerName,
+    quizCompleted,
+    quizStarted,
+    sendMessage,
+  ]);
 
   if (!connected)
     return <ConnectingScreen roomCode={roomCode} playerName={playerName} />;

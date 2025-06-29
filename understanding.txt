@@ -1,0 +1,148 @@
+# Real-Time Quiz App: WebSocket Flow Documentation
+
+## Overview
+
+This document provides a detailed walkthrough of how the real-time quiz application functions, specifically focusing on the interaction between the client (Admin and Player) and the server via WebSockets. It outlines the sequence of events, message formats, data flows, and system behavior.
+
+---
+
+## Key Participants
+
+* **Admin (QuizAdmin.jsx)**: The controller of the quiz. Starts, progresses, and ends the quiz.
+* **Player (Quiz.jsx)**: A participant who answers quiz questions.
+* **WebSocket Server**: Manages real-time communications, room logic, and event broadcasts.
+
+---
+
+## Server Data Models
+
+* **rooms**: A list of all valid room codes.
+* **users**: A map of room codes to an array of user objects (`{ name, score }`).
+* **roomScores**: Score tracking for each user per room.
+* **liveRooms**: Active WebSocket connections grouped by room.
+
+---
+
+## Full Interaction Timeline
+
+### 1. Admin Enters a Room
+
+* **Admin opens** the admin panel.
+* **Admin sends** a `join` message with room code and playerName `__admin__`.
+* **Admin sends** a `validate-room` message to register the room and check uniqueness.
+
+#### Server Responds:
+
+* Validates format of room code.
+* Adds room and admin to room list if not already there.
+* Sends `validation-response` with success or failure.
+* Broadcasts `user-joined` to all in the room (even if only the admin).
+
+### 2. Player Joins the Room
+
+* **Player opens** the quiz page with room code and name.
+* **Player sends** a `join` message.
+* The server:
+
+  * Adds player to `liveRooms`
+  * Sends `user-joined` to all in the room with updated player list
+
+### 3. Admin Starts the Quiz
+
+* Admin clicks start.
+* **Sends** `admin-start` message with room code.
+* The server:
+
+  * Broadcasts `quiz-started` to all players
+  * Broadcasts `new-question` with question 1 (excluding correctAnswer)
+
+### 4. Player Submits Answer
+
+* Player selects and submits an answer.
+* **Sends** `submit-answer` with selected option and question ID.
+* The server:
+
+  * Checks correctness
+  * Sends `submit-answer-response` indicating correct/wrong
+
+### 5. Player Sets Score
+
+* After receiving answer result, the client calculates time taken.
+* **Sends** `set-scores` with roomCode, playerName, timeTaken, isCorrect.
+* The server:
+
+  * Updates the `roomScores` structure
+  * Broadcasts updated `leaderboard-update` to all players
+
+### 6. Admin Sends Next Question
+
+* Admin clicks next.
+* **Sends** `admin-next-question` with next question ID.
+* Server finds the question, removes correctAnswer, and
+
+  * Broadcasts `new-question` to all players
+
+### 7. Admin Ends Quiz
+
+* Admin clicks end.
+* **Sends** `admin-end` with roomCode.
+* Server broadcasts `quiz-ended` to all in room.
+
+---
+
+## WebSocket Message Types
+
+### Sent by Client
+
+* `join`: When a user joins a room
+* `validate-room`: Admin room validation
+* `admin-start`: Start the quiz
+* `admin-next-question`: Move to next question
+* `admin-end`: End the quiz
+* `submit-answer`: Player submits their answer
+* `set-scores`: Player updates their score based on time and correctness
+
+### Sent by Server
+
+* `validation-response`: Result of validation check
+* `user-joined`: Notifies all users of a new player
+* `quiz-started`: Broadcast when quiz begins
+* `new-question`: Sends the next quiz question
+* `submit-answer-response`: Result of answer (correct/wrong)
+* `score-update`: Confirmation of score update
+* `leaderboard-update`: Updated scores for the room
+* `quiz-ended`: Indicates quiz is over
+* `error`: Used when format or logic fails
+
+---
+
+## Functional Behavior
+
+### Duplicate Name Handling
+
+* During validation or join, if player name already exists in that room, server returns `validation-response` with `valid: false`.
+
+### Score Calculation Logic
+
+* A 10-second timer per question is assumed.
+* If a player answers correctly, score = `10 - timeTaken`
+* Minimum score is capped to 1 if answered correctly.
+* Wrong answers get no score.
+
+### Room Cleanup
+
+* When a socket disconnects, it is removed from `liveRooms`.
+* If no one is left in a room, its data is purged from `liveRooms` and `roomScores`.
+
+---
+
+## Summary
+
+This WebSocket-based system enables:
+
+* Live player joining
+* Real-time quiz progression
+* Score updates and leaderboard broadcasting
+* Admin-controlled flow of quiz
+
+It ensures clean separation of concerns and simple communication protocols to maintain quiz state across distributed clients. This doc allows any team member to understand and debug or extend the core real-time logic easily.

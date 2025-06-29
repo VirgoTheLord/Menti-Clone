@@ -10,7 +10,8 @@ const JoinRoom = () => {
   const [players, setPlayers] = useState([]);
   const navigate = useNavigate();
   const { id: urlRoomCode } = useParams();
-  const { connectWebSocket, sendMessage, connected } = useWebSocket();
+  const { connectWebSocket, sendMessage, connected, addMessageHandler } =
+    useWebSocket();
 
   useEffect(() => {
     if (urlRoomCode) setRoomCode(urlRoomCode);
@@ -27,34 +28,44 @@ const JoinRoom = () => {
             setError(message);
             setLoading(false);
           } else {
-            // Proceed to join and navigate
+            // Just send join message, don't navigate yet
             sendMessage("join", {
               roomCode,
               playerName: name,
             });
-
-            navigate(`/quiz/${roomCode}?name=${encodeURIComponent(name)}`);
           }
         }
 
         if (data.type === "user-joined") {
-          setPlayers(data.payload.players);
+          // Filter out admin users like in your Quiz component
+          const activePlayers = data.payload.players.filter(
+            (p) => p !== "__admin__" && !p.startsWith("admin_")
+          );
+          setPlayers(activePlayers);
+
+          // Check if the current user just joined (their name is in the players list)
+          if (activePlayers.includes(name.trim())) {
+            // Navigate to quiz page after successful join
+            navigate(`/quiz/${roomCode}?name=${encodeURIComponent(name)}`);
+          }
         }
       } catch (err) {
         console.error("WebSocket message error:", err);
       }
     };
 
-    if (connected && window.WebSocketInstance) {
-      window.WebSocketInstance.onmessage = handleWebSocketMessage;
+    let removeHandler;
+    if (connected) {
+      // Use addMessageHandler instead of directly setting onmessage
+      removeHandler = addMessageHandler(handleWebSocketMessage);
     }
 
     return () => {
-      if (connected && window.WebSocketInstance) {
-        window.WebSocketInstance.onmessage = null;
+      if (removeHandler) {
+        removeHandler();
       }
     };
-  }, [connected, name, roomCode, navigate, sendMessage]);
+  }, [connected, name, roomCode, navigate, sendMessage, addMessageHandler]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -142,11 +153,13 @@ const JoinRoom = () => {
         <p>WebSocket Status: {connected ? "Connected" : "Disconnected"}</p>
 
         {players.length > 0 && (
-          <div>
-            <p>Players in room:</p>
-            <ul>
+          <div className="w-full bg-blue-800 p-3 rounded-md">
+            <p className="text-sm font-semibold mb-2">Players in room:</p>
+            <ul className="space-y-1">
               {players.map((player, index) => (
-                <li key={index}>{player}</li>
+                <li key={index} className="text-sm text-blue-200">
+                  • {player}
+                </li>
               ))}
             </ul>
           </div>

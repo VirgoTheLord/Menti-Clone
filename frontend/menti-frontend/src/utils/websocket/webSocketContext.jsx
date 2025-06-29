@@ -82,7 +82,7 @@ export const WebSocketProvider = ({ children }) => {
       }
 
       try {
-        const ws = new WebSocket("ws://192.168.1.19:5000");
+        const ws = new WebSocket("ws://192.168.1.21:5000");
         socketRef.current = ws;
         window.WebSocketInstance = ws;
 

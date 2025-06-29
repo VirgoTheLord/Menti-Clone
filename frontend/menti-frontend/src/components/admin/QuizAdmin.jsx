@@ -31,6 +31,37 @@ const QuizAdmin = () => {
 
   const connectionAttempts = useRef(0);
   const maxRetries = 3;
+  // Generate unique admin ID to avoid conflicts on refresh
+  const adminId = useRef(`admin_${Date.now()}`);
+
+  // Helper functions for admin joining
+  const attemptValidation = () => {
+    try {
+      sendMessage("validate-room", { code: roomCode, name: adminId.current });
+      logMessage("Attempting to validate existing admin session...");
+    } catch (error) {
+      logMessage(`Validation failed: ${error.message}`);
+    }
+  };
+
+  const attemptAdminJoin = () => {
+    connectionAttempts.current += 1;
+    try {
+      sendMessage("join", {
+        roomCode,
+        playerName: adminId.current,
+        isAdmin: true,
+      });
+      logMessage(
+        `Attempting to join as admin (attempt ${connectionAttempts.current})`
+      );
+    } catch (error) {
+      logMessage(`Join attempt failed: ${error.message}`);
+      if (connectionAttempts.current < maxRetries) {
+        setTimeout(attemptAdminJoin, 2000);
+      }
+    }
+  };
 
   // WebSocket message handler
   useEffect(() => {
@@ -46,19 +77,65 @@ const QuizAdmin = () => {
         switch (data.type) {
           case "validation-response":
             if (!data.payload.valid) {
-              logMessage("Room validation failed: " + data.payload.message);
+              // If validation fails, admin might not exist yet - try joining
+              if (data.payload.message?.includes("admin not found")) {
+                logMessage("Admin not in room, attempting to join...");
+                setTimeout(() => attemptAdminJoin(), 500);
+              } else {
+                logMessage("Room validation failed: " + data.payload.message);
+              }
             } else {
-              logMessage("Room validated successfully.");
+              logMessage("Admin session validated successfully.");
               setAdminJoined(true);
             }
             break;
 
+          case "join-response":
+            if (data.payload.success) {
+              logMessage("Joined as admin successfully.");
+              setAdminJoined(true);
+            } else {
+              // Admin might already exist - try validation instead
+              if (data.payload.message?.includes("admin already exists")) {
+                logMessage(
+                  "Admin already exists, validating existing session..."
+                );
+                setTimeout(() => attemptValidation(), 500);
+              } else {
+                logMessage(`Join failed: ${data.payload.message}`);
+              }
+            }
+            break;
+
           case "user-joined":
+            // Filter out admin players for display
             const realPlayers = data.payload.players.filter(
-              (p) => p !== "__admin__"
+              (p) => p !== "__admin__" && !p.startsWith("admin_")
             );
             setPlayers(realPlayers);
-            logMessage(`${data.payload.playerName} joined the room.`);
+
+            // Only log if it's not an admin joining
+            if (
+              !data.payload.playerName.startsWith("admin_") &&
+              data.payload.playerName !== "__admin__"
+            ) {
+              logMessage(
+                `${data.payload.playerName} joined the room. (${data.payload.totalPlayers} total players)`
+              );
+            }
+            break;
+
+          case "user-left":
+            // Update players list when someone leaves
+            const updatedPlayers = data.payload.players.filter(
+              (p) => p !== "__admin__" && !p.startsWith("admin_")
+            );
+            setPlayers(updatedPlayers);
+
+            // Log the departure
+            logMessage(
+              `${data.payload.playerName} left the room. (${data.payload.totalPlayers} players remaining)`
+            );
             break;
 
           case "quiz-started":
@@ -75,6 +152,15 @@ const QuizAdmin = () => {
           case "leaderboard-update":
             setLeaderboard(data.payload);
             logMessage("Leaderboard updated.");
+            break;
+
+          case "quiz-reset":
+            logMessage("Quiz has been reset!");
+            setStarted(false);
+            setQuizEnded(false);
+            setCurrentQuestionId(1);
+            setLeaderboard([]);
+            setPlayers([]);
             break;
 
           case "error":
@@ -98,7 +184,7 @@ const QuizAdmin = () => {
     };
   }, [roomCode, connectWebSocket, disconnectWebSocket, addMessageHandler]);
 
-  // Admin join logic
+  // Enhanced admin join logic
   useEffect(() => {
     if (
       connected &&
@@ -106,28 +192,22 @@ const QuizAdmin = () => {
       roomCode &&
       !adminJoined
     ) {
-      const attemptAdminJoin = () => {
-        connectionAttempts.current += 1;
-        try {
-          sendMessage("join", { roomCode, playerName: "__admin__" });
-          sendMessage("validate-room", { code: roomCode, name: "__admin__" });
-          logMessage(
-            `Connected as admin to room ${roomCode} (attempt ${connectionAttempts.current})`
-          );
-        } catch (error) {
-          logMessage(`Failed to join as admin: ${error.message}`);
-          if (connectionAttempts.current < maxRetries) {
-            setTimeout(attemptAdminJoin, 2000);
-          } else {
-            logMessage("Max connection attempts reached. Please refresh.");
+      const initAdmin = () => {
+        // First, try validation (in case admin already exists from previous session)
+        attemptValidation();
+
+        // If validation doesn't work within 2 seconds, try joining
+        setTimeout(() => {
+          if (!adminJoined) {
+            attemptAdminJoin();
           }
-        }
+        }, 2000);
       };
 
-      const timer = setTimeout(attemptAdminJoin, 1000);
+      const timer = setTimeout(initAdmin, 1000);
       return () => clearTimeout(timer);
     }
-  }, [connected, connectionState, roomCode, sendMessage, adminJoined]);
+  }, [connected, connectionState, roomCode, adminJoined]);
 
   useEffect(() => {
     if (connected) {
@@ -189,11 +269,23 @@ const QuizAdmin = () => {
   };
 
   const resetQuiz = () => {
-    setStarted(false);
-    setQuizEnded(false);
-    setCurrentQuestionId(1);
-    setLeaderboard([]);
-    logMessage("Quiz reset. Ready for new game.");
+    // Send reset command to server to clear all players and reset room state
+    if (safeSendMessage("admin-reset", { roomCode })) {
+      setStarted(false);
+      setQuizEnded(false);
+      setCurrentQuestionId(1);
+      setLeaderboard([]);
+      setPlayers([]); // Clear players from admin view
+      logMessage("Quiz reset. Server notified to clear all players.");
+    } else {
+      // Fallback: just reset local state
+      setStarted(false);
+      setQuizEnded(false);
+      setCurrentQuestionId(1);
+      setLeaderboard([]);
+      setPlayers([]);
+      logMessage("Quiz reset locally. Players cleared from admin view.");
+    }
   };
 
   return (
