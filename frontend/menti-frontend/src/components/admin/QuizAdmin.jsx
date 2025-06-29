@@ -31,10 +31,8 @@ const QuizAdmin = () => {
 
   const connectionAttempts = useRef(0);
   const maxRetries = 3;
-  // Generate unique admin ID to avoid conflicts on refresh
   const adminId = useRef(`admin_${Date.now()}`);
 
-  // Helper functions for admin joining
   const attemptValidation = () => {
     try {
       sendMessage("validate-room", { code: roomCode, name: adminId.current });
@@ -63,7 +61,6 @@ const QuizAdmin = () => {
     }
   };
 
-  // WebSocket message handler
   useEffect(() => {
     if (!roomCode) return;
 
@@ -77,7 +74,6 @@ const QuizAdmin = () => {
         switch (data.type) {
           case "validation-response":
             if (!data.payload.valid) {
-              // If validation fails, admin might not exist yet - try joining
               if (data.payload.message?.includes("admin not found")) {
                 logMessage("Admin not in room, attempting to join...");
                 setTimeout(() => attemptAdminJoin(), 500);
@@ -95,7 +91,6 @@ const QuizAdmin = () => {
               logMessage("Joined as admin successfully.");
               setAdminJoined(true);
             } else {
-              // Admin might already exist - try validation instead
               if (data.payload.message?.includes("admin already exists")) {
                 logMessage(
                   "Admin already exists, validating existing session..."
@@ -108,13 +103,11 @@ const QuizAdmin = () => {
             break;
 
           case "user-joined":
-            // Filter out admin players for display
             const realPlayers = data.payload.players.filter(
               (p) => p !== "__admin__" && !p.startsWith("admin_")
             );
             setPlayers(realPlayers);
 
-            // Only log if it's not an admin joining
             if (
               !data.payload.playerName.startsWith("admin_") &&
               data.payload.playerName !== "__admin__"
@@ -126,13 +119,11 @@ const QuizAdmin = () => {
             break;
 
           case "user-left":
-            // Update players list when someone leaves
             const updatedPlayers = data.payload.players.filter(
               (p) => p !== "__admin__" && !p.startsWith("admin_")
             );
             setPlayers(updatedPlayers);
 
-            // Log the departure
             logMessage(
               `${data.payload.playerName} left the room. (${data.payload.totalPlayers} players remaining)`
             );
@@ -184,7 +175,6 @@ const QuizAdmin = () => {
     };
   }, [roomCode, connectWebSocket, disconnectWebSocket, addMessageHandler]);
 
-  // Enhanced admin join logic
   useEffect(() => {
     if (
       connected &&
@@ -193,10 +183,8 @@ const QuizAdmin = () => {
       !adminJoined
     ) {
       const initAdmin = () => {
-        // First, try validation (in case admin already exists from previous session)
         attemptValidation();
 
-        // If validation doesn't work within 2 seconds, try joining
         setTimeout(() => {
           if (!adminJoined) {
             attemptAdminJoin();
@@ -269,16 +257,14 @@ const QuizAdmin = () => {
   };
 
   const resetQuiz = () => {
-    // Send reset command to server to clear all players and reset room state
     if (safeSendMessage("admin-reset", { roomCode })) {
       setStarted(false);
       setQuizEnded(false);
       setCurrentQuestionId(1);
       setLeaderboard([]);
-      setPlayers([]); // Clear players from admin view
+      setPlayers([]);
       logMessage("Quiz reset. Server notified to clear all players.");
     } else {
-      // Fallback: just reset local state
       setStarted(false);
       setQuizEnded(false);
       setCurrentQuestionId(1);
@@ -295,7 +281,6 @@ const QuizAdmin = () => {
       </h1>
 
       <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column */}
         <div className="bg-slate-800 p-6 rounded-lg shadow-lg">
           <RoomInfo
             roomName={roomName}
@@ -327,7 +312,6 @@ const QuizAdmin = () => {
           />
         </div>
 
-        {/* Right Column */}
         <div className="space-y-6">
           <Leaderboard leaderboard={leaderboard} />
           <ActivityLog log={log} />

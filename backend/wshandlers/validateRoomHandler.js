@@ -17,8 +17,15 @@ function handleValidateRoom(socket, payload) {
   }
 
   if (!rooms.includes(code)) {
-    rooms.push(code);
-    console.log("Room created manually via code:", code);
+    return socket.send(
+      JSON.stringify({
+        type: "validation-response",
+        payload: {
+          valid: false,
+          message: "Room does not exist.",
+        },
+      })
+    );
   }
 
   if (!users[code]) users[code] = [];

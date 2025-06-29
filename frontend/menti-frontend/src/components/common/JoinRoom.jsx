@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useWebSocket } from "../../utils/websocket/webSocketContext";
+import { Card, CardContent, CardHeader } from "../ui/card";
+import { Input } from "../ui/input";
+import { Button } from "../ui/button";
+import { Label } from "../ui/label";
 
 const JoinRoom = () => {
   const [roomCode, setRoomCode] = useState("");
@@ -28,7 +32,6 @@ const JoinRoom = () => {
             setError(message);
             setLoading(false);
           } else {
-            // Just send join message, don't navigate yet
             sendMessage("join", {
               roomCode,
               playerName: name,
@@ -37,15 +40,12 @@ const JoinRoom = () => {
         }
 
         if (data.type === "user-joined") {
-          // Filter out admin users like in your Quiz component
           const activePlayers = data.payload.players.filter(
             (p) => p !== "__admin__" && !p.startsWith("admin_")
           );
           setPlayers(activePlayers);
 
-          // Check if the current user just joined (their name is in the players list)
           if (activePlayers.includes(name.trim())) {
-            // Navigate to quiz page after successful join
             navigate(`/quiz/${roomCode}?name=${encodeURIComponent(name)}`);
           }
         }
@@ -56,14 +56,11 @@ const JoinRoom = () => {
 
     let removeHandler;
     if (connected) {
-      // Use addMessageHandler instead of directly setting onmessage
       removeHandler = addMessageHandler(handleWebSocketMessage);
     }
 
     return () => {
-      if (removeHandler) {
-        removeHandler();
-      }
+      if (removeHandler) removeHandler();
     };
   }, [connected, name, roomCode, navigate, sendMessage, addMessageHandler]);
 
@@ -108,83 +105,101 @@ const JoinRoom = () => {
   };
 
   return (
-    <div className="w-full h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-blue-950 text-white w-full max-w-md rounded-lg shadow-lg p-8 flex flex-col items-center space-y-6">
-        <h1 className="text-2xl font-bold text-center">Join Room</h1>
-
-        {urlRoomCode && (
-          <div className="w-full bg-blue-800 p-3 rounded-md text-center">
-            <p className="text-sm">
+    <div className="w-full h-screen bg-white flex items-center justify-center px-4">
+      <Card className="w-full max-w-md h-80vh shadow-xl border-blue-200">
+        <CardHeader className="bg-blue-950 text-white rounded-t-lg p-10 text-center -mt-6">
+          <h1 className="text-2xl font-bold">Join Room</h1>
+          {urlRoomCode && (
+            <div className="mt-2 text-blue-300 text-sm">
               Room Code from link:{" "}
               <span className="font-bold">{urlRoomCode}</span>
-            </p>
-            <p className="text-xs text-blue-200 mt-1">
-              Confirm by entering the same code below
-            </p>
-          </div>
-        )}
+              <div className="text-xs text-blue-200 mt-1">
+                Confirm by entering the same code below
+              </div>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="p-6 space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <Label htmlFor="name" className="text-sm text-gray-700 mb-2">
+                Name
+              </Label>
+              <Input
+                id="name"
+                placeholder="Enter your name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className={`${
+                  error
+                    ? "border-red-500"
+                    : "hover:border-blue-500 focus:border-blue-500 p-2 placeholder:text-xs text-xs"
+                }`}
+              />
+            </div>
 
-        <div className="w-full">
-          <input
-            type="text"
-            placeholder="Enter your name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={`w-full p-3 rounded-md border text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4 ${
-              error
-                ? "border-red-500 bg-red-900/20"
-                : "border-gray-300 bg-blue-900/20"
-            }`}
-          />
-          <input
-            type="text"
-            placeholder="Enter Room Code"
-            value={roomCode}
-            onChange={(e) => setRoomCode(e.target.value)}
-            className={`w-full p-3 rounded-md border text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-              error
-                ? "border-red-500 bg-red-900/20"
-                : "border-gray-300 bg-blue-900/20"
-            }`}
-          />
-          {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
-        </div>
+            <div>
+              <Label htmlFor="roomCode" className="text-sm text-gray-700 mb-2">
+                Room Code
+              </Label>
+              <Input
+                id="roomCode"
+                placeholder="Enter Room Code"
+                value={roomCode}
+                onChange={(e) => setRoomCode(e.target.value)}
+                className={`${
+                  error
+                    ? "border-red-500"
+                    : "hover:border-blue-500 focus:border-blue-500 p-2 placeholder:text-xs text-xs"
+                }`}
+              />
+            </div>
 
-        <p>WebSocket Status: {connected ? "Connected" : "Disconnected"}</p>
+            {error && <p className="text-red-500 text-sm">{error}</p>}
 
-        {players.length > 0 && (
-          <div className="w-full bg-blue-800 p-3 rounded-md">
-            <p className="text-sm font-semibold mb-2">Players in room:</p>
-            <ul className="space-y-1">
-              {players.map((player, index) => (
-                <li key={index} className="text-sm text-blue-200">
-                  • {player}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+            <Button
+              type="submit"
+              className="w-full bg-blue-600 hover:bg-blue-700"
+              disabled={loading}
+            >
+              {loading ? "Validating..." : "Join Room"}
+            </Button>
 
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-md transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-950"
-        >
-          {loading ? "Validating..." : "Join Room"}
-        </button>
+            {urlRoomCode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRoomCode(urlRoomCode);
+                  setError("");
+                }}
+                className="text-blue-600 hover:underline text-sm"
+              >
+                Use room code from link
+              </button>
+            )}
+          </form>
 
-        {urlRoomCode && (
-          <button
-            onClick={() => {
-              setRoomCode(urlRoomCode);
-              setError("");
-            }}
-            className="text-blue-300 hover:text-blue-100 text-sm underline"
-          >
-            Use room code from link
-          </button>
-        )}
-      </div>
+          <p className="text-xs text-gray-500 text-center">
+            WebSocket Status:{" "}
+            <span className={connected ? "text-green-600" : "text-red-500"}>
+              {connected ? "Connected" : "Disconnected"}
+            </span>
+          </p>
+
+          {players.length > 0 && (
+            <div className="mt-4 bg-blue-50 border border-blue-200 rounded-md p-4">
+              <p className="text-sm font-semibold text-blue-900 mb-2">
+                Players in room:
+              </p>
+              <ul className="space-y-1 text-sm text-blue-800">
+                {players.map((player, idx) => (
+                  <li key={idx}>• {player}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
