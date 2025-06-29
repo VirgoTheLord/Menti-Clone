@@ -1,7 +1,9 @@
-import { rooms, users } from "../state.js";
+const { rooms, users } = require("../state");
 
-export function handleValidateRoom(socket, { code, name }) {
+function handleValidateRoom(socket, payload) {
+  const { code, name } = payload;
   const regex = /^[0-9]{4}-[0-9]{4}$/;
+
   if (!regex.test(code)) {
     return socket.send(
       JSON.stringify({
@@ -37,7 +39,7 @@ export function handleValidateRoom(socket, { code, name }) {
   users[code].push({ name, score: 0 });
   console.log(`User "${name}" joined room ${code}`);
 
-  socket.send(
+  return socket.send(
     JSON.stringify({
       type: "validation-response",
       payload: {
@@ -47,3 +49,5 @@ export function handleValidateRoom(socket, { code, name }) {
     })
   );
 }
+
+module.exports = handleValidateRoom;

@@ -1,5 +1,7 @@
-export function handleFetchQuestion(socket, { qid }, questions) {
-  const questionId = parseInt(qid, 10);
+const questions = require("../data/questions");
+
+function handleFetchQuestion(socket, payload) {
+  const questionId = parseInt(payload.qid, 10);
   const question = questions.find((q) => q.id === questionId);
 
   if (question) {
@@ -21,4 +23,4 @@ export function handleFetchQuestion(socket, { qid }, questions) {
   }
 }
 
-export default handleFetchQuestion;
+module.exports = handleFetchQuestion;

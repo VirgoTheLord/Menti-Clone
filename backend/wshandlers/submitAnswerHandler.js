@@ -1,4 +1,7 @@
-export function handleSubmitAnswer(socket, { answer, qid }, questions) {
+const questions = require("../data/questions");
+
+function handleSubmitAnswer(socket, payload) {
+  const { answer, qid } = payload;
   const question = questions.find((q) => q.id === qid);
 
   if (!question || !answer) {
@@ -26,4 +29,4 @@ export function handleSubmitAnswer(socket, { answer, qid }, questions) {
   );
 }
 
-export default handleSubmitAnswer;
+module.exports = handleSubmitAnswer;

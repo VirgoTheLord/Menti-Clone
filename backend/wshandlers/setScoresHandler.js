@@ -1,10 +1,8 @@
-import { roomScores, liveRooms } from "../state.js";
-import { calculateScore } from "../utils/score.js";
+const { roomScores, liveRooms } = require("../state");
+const calculateScore = require("../utils/score");
 
-export function handleSetScores(
-  socket,
-  { roomCode, playerName, timeTaken, isCorrect }
-) {
+function handleSetScores(socket, payload) {
+  const { roomCode, playerName, timeTaken, isCorrect } = payload;
   if (!roomCode || !playerName) {
     return socket.send(
       JSON.stringify({
@@ -53,4 +51,4 @@ export function handleSetScores(
   });
 }
 
-export default handleSetScores;
+module.exports = handleSetScores;

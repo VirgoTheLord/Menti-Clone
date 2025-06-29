@@ -1,47 +1,57 @@
-export async function handleAdmin(socket, type, payload, questions) {
+const { liveRooms, roomScores, users } = require("../state");
+const questions = require("../data/questions");
+
+function broadcast(roomCode, messages) {
+  if (!liveRooms[roomCode]) return;
+  liveRooms[roomCode].forEach((client) => {
+    messages.forEach((msg) => {
+      client.send(JSON.stringify(msg));
+    });
+  });
+}
+
+function handleAdmin(socket, payload, type) {
   const { roomCode, qid } = payload;
+  if (!roomCode || !liveRooms[roomCode]) return;
 
   switch (type) {
     case "admin-start": {
-      if (!roomCode) return;
       console.log(`Admin started quiz for room ${roomCode}`);
-
       const question = questions.find((q) => q.id === 1);
-      if (!question) return;
-      const { correctAnswer, ...safeQuestion } = question;
-
-      broadcast(roomCode, [
-        {
-          type: "quiz-started",
-          payload: { message: "Quiz has been started!" },
-        },
-        {
-          type: "new-question",
-          payload: safeQuestion,
-          totalQuestions: questions.length,
-        },
-      ]);
+      if (question) {
+        const { correctAnswer, ...safeQuestion } = question;
+        broadcast(roomCode, [
+          {
+            type: "quiz-started",
+            payload: { message: "Quiz has been started!" },
+          },
+          {
+            type: "new-question",
+            payload: safeQuestion,
+            totalQuestions: questions.length,
+          },
+        ]);
+      }
       break;
     }
 
     case "admin-next-question": {
       const question = questions.find((q) => q.id === qid);
-      if (!roomCode || !question) return;
-      const { correctAnswer, ...safeQuestion } = question;
-
-      broadcast(roomCode, [
-        {
-          type: "new-question",
-          payload: safeQuestion,
-          totalQuestions: questions.length,
-        },
-      ]);
-      console.log(`Sent question ${qid} to room ${roomCode}`);
+      if (question) {
+        const { correctAnswer, ...safeQuestion } = question;
+        broadcast(roomCode, [
+          {
+            type: "new-question",
+            payload: safeQuestion,
+            totalQuestions: questions.length,
+          },
+        ]);
+        console.log(`Sent question ${qid} to room ${roomCode}`);
+      }
       break;
     }
 
     case "admin-end": {
-      if (!roomCode) return;
       broadcast(roomCode, [
         {
           type: "quiz-ended",
@@ -53,26 +63,19 @@ export async function handleAdmin(socket, type, payload, questions) {
     }
 
     case "admin-reset": {
-      if (!roomCode) return;
-      const { liveRooms, roomScores, users } = await import("../state.js");
-      const room = liveRooms[roomCode];
-      if (!room) return;
+      console.log(`Admin reset quiz for room ${roomCode}`);
 
-      delete roomScores[roomCode];
-      users[roomCode] = [];
+      if (roomScores[roomCode]) delete roomScores[roomCode];
+      if (users[roomCode]) users[roomCode] = [];
 
-      const adminSockets = room.filter(
-        (client) =>
-          client.playerName === "__admin__" ||
-          client.playerName?.startsWith("admin_")
+      const adminSockets = liveRooms[roomCode].filter(
+        (client) => client.isAdmin
+      );
+      const playerSockets = liveRooms[roomCode].filter(
+        (client) => !client.isAdmin
       );
 
-      const playerSockets = room.filter(
-        (client) =>
-          client.playerName !== "__admin__" &&
-          !client.playerName?.startsWith("admin_")
-      );
-
+      // Notify and close player sockets
       playerSockets.forEach((client) => {
         client.send(
           JSON.stringify({
@@ -83,40 +86,28 @@ export async function handleAdmin(socket, type, payload, questions) {
             },
           })
         );
-        setTimeout(() => {
-          if (client.readyState === client.OPEN) client.close();
-        }, 1000);
+        setTimeout(() => client.close(), 1000);
       });
 
+      // Keep only admin sockets
       liveRooms[roomCode] = adminSockets;
 
+      // Notify admins
       adminSockets.forEach((client) => {
         client.send(
           JSON.stringify({
             type: "quiz-reset",
             payload: {
-              message:
-                "Quiz reset successfully. All players have been disconnected.",
+              message: "Quiz reset successfully.",
               playersCleared: playerSockets.length,
             },
           })
         );
       });
 
-      console.log(`Admin reset quiz for room ${roomCode}`);
       break;
     }
   }
 }
 
-function broadcast(roomCode, messages) {
-  const { liveRooms } = globalThis;
-  if (!liveRooms[roomCode]) return;
-  liveRooms[roomCode].forEach((client) => {
-    messages.forEach((msg) => {
-      client.send(JSON.stringify(msg));
-    });
-  });
-}
-
-export default handleAdmin;
+module.exports = handleAdmin;

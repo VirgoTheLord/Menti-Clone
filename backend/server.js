@@ -1,30 +1,30 @@
 const express = require("express");
 const cors = require("cors");
+const http = require("http");
+const { WebSocketServer } = require("ws");
+const connectDB = require("./config/db");
 const fetchQuestionRouter = require("./routes/fetchQuestionRoute");
 const quizRouter = require("./routes/quizRoute");
-const connectDB = require("./config/db");
-const http = require("http");
 const questions = require("./data/questions");
+
+const handleJoin = require("./wshandlers/joinHandler");
+const handleValidateRoom = require("./wshandlers/validateRoomHandler");
+const handleFetchQuestion = require("./wshandlers/fetchQuestionHandler");
+const handleSubmitAnswer = require("./wshandlers/submitAnswerHandler");
+const handleSetScores = require("./wshandlers/setScoresHandler");
+const handleAdmin = require("./wshandlers/adminHandler");
+const handleLeave = require("./wshandlers/leaveHandler");
+const state = require("./state");
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
-const { WebSocketServer } = require("ws");
-
-connectDB();
 const wss = new WebSocketServer({ server });
 
-const rooms = [];
-const users = {};
-const roomScores = {};
-
-const calculateScore = (timeTaken) => {
-  const totalTime = 10;
-  const rough = totalTime - timeTaken;
-  return Math.max(1, Math.round(rough));
-};
+connectDB();
 
 app.use("/api/fetch-question", fetchQuestionRouter);
 app.use("/api/quiz", quizRouter);
@@ -37,9 +37,8 @@ app.get("/api/generate-room-code", (req, res) => {
   };
   try {
     const roomCode = generateCode();
-    rooms.push(roomCode);
+    state.rooms.push(roomCode);
     console.log("Generated room code:", roomCode);
-
     res.json({ Code: roomCode });
   } catch (error) {
     console.error("Error generating room code:", error);
@@ -49,7 +48,6 @@ app.get("/api/generate-room-code", (req, res) => {
 
 app.post("/api/validate-room-code", (req, res) => {
   const { code, name } = req.body;
-
   const regex = /^[0-9]{4}-[0-9]{4}$/;
   const isCorrectFormat = regex.test(code);
   if (!isCorrectFormat) {
@@ -58,519 +56,73 @@ app.post("/api/validate-room-code", (req, res) => {
       message: "Invalid room code format. Use XXXX-XXXX.",
     });
   }
-  if (!rooms.includes(code)) {
-    rooms.push(code);
+  if (!state.rooms.includes(code)) {
+    state.rooms.push(code);
     console.log("Room created manually via code:", code);
   }
-  if (!users[code]) {
-    users[code] = [];
+  if (!state.users[code]) {
+    state.users[code] = [];
   }
-
-  const alreadyExists = users[code].some((u) => u.name === name);
+  const alreadyExists = state.users[code].some((u) => u.name === name);
   if (alreadyExists) {
     return res.status(400).json({
       valid: false,
       message: "User with this name already exists in the room.",
     });
   }
-
-  users[code].push({ name, score: 0 });
-
+  state.users[code].push({ name, score: 0 });
   console.log(`User "${name}" joined room ${code}`);
   res.json({ valid: true, message: "Room joined successfully." });
 });
 
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+wss.on("connection", (socket) => {
+  socket.on("message", (message) => {
+    const data = JSON.parse(message);
+    const { type, payload } = data;
+
+    switch (type) {
+      case "join":
+        handleJoin(socket, payload);
+        break;
+      case "validate-room":
+        handleValidateRoom(socket, payload);
+        break;
+      case "fetch-question":
+        handleFetchQuestion(socket, payload);
+        break;
+      case "submit-answer":
+        handleSubmitAnswer(socket, payload);
+        break;
+      case "set-scores":
+        handleSetScores(socket, payload);
+        break;
+      case "admin-start":
+      case "admin-next-question":
+      case "admin-end":
+      case "admin-reset":
+        handleAdmin(socket, payload, type);
+        break;
+      case "leave":
+        handleLeave(socket, payload);
+        break;
+    }
+  });
+
+  socket.on("close", () => {
+    const { roomCode, playerName, isAdmin } = socket;
+    handleLeave(socket, { roomCode, playerName }, isAdmin);
+  });
+
+  socket.on("error", (err) => {
+    console.error("WebSocket error:", err);
+    socket.emit("close");
+  });
 });
 
 app.get("/", (req, res) => {
   res.send("Menti Api Backend configured successfully");
 });
 
-liveRooms = {};
-
-wss.on("connection", (socket) => {
-  console.log("Client connected");
-
-  socket.on("message", async (message) => {
-    const data = JSON.parse(message);
-
-    if (data.type === "join") {
-      const { roomCode, playerName, isAdmin } = data.payload;
-      socket.roomCode = roomCode;
-      socket.playerName = playerName;
-      socket.isAdmin = isAdmin || false;
-
-      if (!liveRooms[roomCode]) {
-        liveRooms[roomCode] = [];
-      }
-
-      // Check if player already exists in room
-      const existingPlayerIndex = liveRooms[roomCode].findIndex(
-        (client) => client.playerName === playerName
-      );
-
-      if (existingPlayerIndex !== -1) {
-        // Replace existing connection (handles reconnection)
-        liveRooms[roomCode][existingPlayerIndex] = socket;
-      } else {
-        // Add new player
-        liveRooms[roomCode].push(socket);
-      }
-
-      // Get current players list (exclude admin players)
-      const currentPlayers = liveRooms[roomCode]
-        .filter(
-          (client) =>
-            !client.isAdmin &&
-            client.playerName !== "__admin__" &&
-            !client.playerName?.startsWith("admin_")
-        )
-        .map((client) => client.playerName);
-
-      // Broadcast to all clients in room that a user joined
-      liveRooms[roomCode].forEach((client) => {
-        if (client.readyState === client.OPEN) {
-          client.send(
-            JSON.stringify({
-              type: "user-joined",
-              payload: {
-                playerName,
-                players: currentPlayers,
-                totalPlayers: currentPlayers.length,
-              },
-            })
-          );
-        }
-      });
-
-      console.log(`${playerName} joined room ${roomCode}`);
-    }
-
-    if (data.type === "validate-room") {
-      const { code, name } = data.payload;
-
-      const regex = /^[0-9]{4}-[0-9]{4}$/;
-      const isCorrectFormat = regex.test(code);
-      if (!isCorrectFormat) {
-        return socket.send(
-          JSON.stringify({
-            type: "validation-response",
-            payload: {
-              valid: false,
-              message: "Invalid room code format. Use XXXX-XXXX.",
-            },
-          })
-        );
-      }
-
-      if (!rooms.includes(code)) {
-        rooms.push(code);
-        console.log("Room created manually via code:", code);
-      }
-
-      if (!users[code]) {
-        users[code] = [];
-      }
-
-      const alreadyExists = users[code].some((u) => u.name === name);
-      if (alreadyExists) {
-        return socket.send(
-          JSON.stringify({
-            type: "validation-response",
-            payload: {
-              valid: false,
-              message: "User with this name already exists in the room.",
-            },
-          })
-        );
-      }
-
-      users[code].push({ name, score: 0 });
-      console.log(`User "${name}" joined room ${code}`);
-
-      return socket.send(
-        JSON.stringify({
-          type: "validation-response",
-          payload: {
-            valid: true,
-            message: "Room joined successfully.",
-          },
-        })
-      );
-    }
-
-    if (data.type === "fetch-question") {
-      const questionId = parseInt(data.payload.qid, 10);
-      const question = questions.find((q) => q.id === questionId);
-
-      if (question) {
-        const { correctAnswer, ...safeQuestion } = question;
-        socket.send(
-          JSON.stringify({
-            type: "fetch-question-response",
-            payload: safeQuestion,
-            totalQuestions: questions.length,
-          })
-        );
-      } else {
-        socket.send(
-          JSON.stringify({
-            type: "error",
-            payload: { message: "quiz-ended" },
-          })
-        );
-      }
-    }
-
-    if (data.type === "submit-answer") {
-      const { answer, qid } = data.payload;
-      const question = questions.find((q) => q.id === qid);
-
-      if (!question || !answer) {
-        return socket.send(
-          JSON.stringify({
-            type: "error",
-            payload: { message: "Invalid question ID or answer" },
-          })
-        );
-      }
-
-      const isCorrect = answer === question.correctAnswer;
-
-      socket.send(
-        JSON.stringify({
-          type: "submit-answer-response",
-          payload: {
-            questionId: qid,
-            correctAnswer: question.correctAnswer,
-            selectedAnswer: answer,
-            isCorrect,
-            message: isCorrect ? "Correct!" : "Wrong!",
-          },
-        })
-      );
-    }
-
-    if (data.type === "set-scores") {
-      const { roomCode, playerName, timeTaken, isCorrect } = data.payload;
-      if (!roomCode || !playerName) {
-        return socket.send(
-          JSON.stringify({
-            type: "error",
-            payload: { message: "Room code or player name not found" },
-          })
-        );
-      }
-
-      if (!roomScores[roomCode]) {
-        roomScores[roomCode] = {};
-      }
-
-      const currentPlayer = roomScores[roomCode][playerName] || {
-        score: 0,
-        timeTaken: 0,
-      };
-
-      if (isCorrect) {
-        currentPlayer.score += calculateScore(timeTaken);
-      }
-      currentPlayer.timeTaken += timeTaken;
-
-      roomScores[roomCode][playerName] = currentPlayer;
-
-      socket.send(
-        JSON.stringify({
-          type: "score-update",
-          payload: {
-            message: isCorrect
-              ? "Score updated successfully"
-              : "Answer is Wrong.",
-          },
-        })
-      );
-
-      const leaderboard = Object.entries(roomScores[roomCode])
-        .map(([name, info]) => ({ name, ...info }))
-        .sort((a, b) => b.score - a.score);
-
-      liveRooms[roomCode]?.forEach((client) => {
-        client.send(
-          JSON.stringify({
-            type: "leaderboard-update",
-            payload: leaderboard,
-          })
-        );
-      });
-    }
-
-    // ADMIN STARTS QUIZ
-    if (data.type === "admin-start") {
-      const { roomCode } = data.payload;
-      if (!roomCode || !liveRooms[roomCode]) return;
-
-      console.log(`Admin started quiz for room ${roomCode}`);
-
-      // Broadcast quiz started
-      liveRooms[roomCode].forEach((client) => {
-        client.send(
-          JSON.stringify({
-            type: "quiz-started",
-            payload: { message: "Quiz has been started!" },
-          })
-        );
-      });
-
-      // Send first question - assuming question id 1
-      const question = questions.find((q) => q.id === 1);
-      if (question) {
-        const { correctAnswer, ...safeQuestion } = question;
-        liveRooms[roomCode].forEach((client) => {
-          client.send(
-            JSON.stringify({
-              type: "new-question",
-              payload: safeQuestion,
-              totalQuestions: questions.length,
-            })
-          );
-        });
-      }
-    }
-
-    // ADMIN SENDS NEXT QUESTION
-    if (data.type === "admin-next-question") {
-      const { roomCode, qid } = data.payload;
-      const question = questions.find((q) => q.id === qid);
-
-      if (!roomCode || !question) return;
-
-      const { correctAnswer, ...safeQuestion } = question;
-
-      liveRooms[roomCode].forEach((client) => {
-        client.send(
-          JSON.stringify({
-            type: "new-question",
-            payload: safeQuestion,
-            totalQuestions: questions.length,
-          })
-        );
-      });
-
-      console.log(`Sent question ${qid} to room ${roomCode}`);
-    }
-
-    // ADMIN ENDS QUIZ
-    if (data.type === "admin-end") {
-      const { roomCode } = data.payload;
-      if (!roomCode || !liveRooms[roomCode]) return;
-
-      liveRooms[roomCode].forEach((client) => {
-        client.send(
-          JSON.stringify({
-            type: "quiz-ended",
-            payload: { message: "The quiz has ended!" },
-          })
-        );
-      });
-
-      console.log(`Quiz ended in room ${roomCode}`);
-    }
-
-    // Add this handler in your socket.on("message") section,
-    // after your existing handlers (like "admin-reset")
-
-    // Add this handler in your socket.on("message") section,
-    // after your existing handlers (like "admin-reset")
-
-    if (data.type === "leave") {
-      const { roomCode, playerName } = data.payload;
-
-      if (roomCode && playerName) {
-        // IMPORTANT: Remove from users array (this is what prevents rejoining)
-        if (users[roomCode]) {
-          users[roomCode] = users[roomCode].filter(
-            (u) => u.name !== playerName
-          );
-          console.log(
-            `Removed ${playerName} from users array for room ${roomCode}`
-          );
-        }
-
-        // Remove from liveRooms if it exists
-        if (liveRooms[roomCode]) {
-          liveRooms[roomCode] = liveRooms[roomCode].filter((s) => s !== socket);
-
-          // Get remaining players (exclude admins)
-          const remainingPlayers = liveRooms[roomCode]
-            .filter(
-              (client) =>
-                !client.isAdmin &&
-                client.playerName !== "__admin__" &&
-                !client.playerName?.startsWith("admin_")
-            )
-            .map((client) => client.playerName);
-
-          // Notify remaining clients about user leaving
-          liveRooms[roomCode].forEach((client) => {
-            if (client.readyState === client.OPEN) {
-              client.send(
-                JSON.stringify({
-                  type: "user-left",
-                  payload: {
-                    playerName,
-                    players: remainingPlayers,
-                    totalPlayers: remainingPlayers.length,
-                  },
-                })
-              );
-            }
-          });
-
-          // Clean up empty rooms
-          if (liveRooms[roomCode].length === 0) {
-            delete liveRooms[roomCode];
-            delete roomScores[roomCode];
-            if (users[roomCode]) {
-              delete users[roomCode];
-            }
-            console.log(`Room ${roomCode} deleted - no players remaining`);
-          }
-        }
-
-        console.log(`${playerName} manually left room ${roomCode}`);
-      }
-    }
-
-    // ADMIN RESETS QUIZ
-    if (data.type === "admin-reset") {
-      const { roomCode } = data.payload;
-      if (!roomCode || !liveRooms[roomCode]) return;
-
-      console.log(`Admin reset quiz for room ${roomCode}`);
-
-      // Clear all scores for this room
-      if (roomScores[roomCode]) {
-        delete roomScores[roomCode];
-      }
-
-      // Clear users for this room (they'll need to rejoin)
-      if (users[roomCode]) {
-        users[roomCode] = [];
-      }
-
-      // Get admin sockets (those with admin-like names)
-      const adminSockets = liveRooms[roomCode].filter(
-        (client) =>
-          client.playerName === "__admin__" ||
-          client.playerName?.startsWith("admin_")
-      );
-
-      // Disconnect all non-admin players
-      const playerSockets = liveRooms[roomCode].filter(
-        (client) =>
-          client.playerName !== "__admin__" &&
-          !client.playerName?.startsWith("admin_")
-      );
-
-      // Notify players about reset and disconnect them
-      playerSockets.forEach((client) => {
-        try {
-          client.send(
-            JSON.stringify({
-              type: "quiz-reset",
-              payload: {
-                message: "Quiz has been reset. Please rejoin the room.",
-                shouldReconnect: true,
-              },
-            })
-          );
-          // Close connection after a brief delay to ensure message is sent
-          setTimeout(() => {
-            if (client.readyState === client.OPEN) {
-              client.close();
-            }
-          }, 1000);
-        } catch (error) {
-          console.error("Error notifying player of reset:", error);
-        }
-      });
-
-      // Keep only admin sockets in the room
-      liveRooms[roomCode] = adminSockets;
-
-      // Notify admin about successful reset
-      adminSockets.forEach((adminClient) => {
-        adminClient.send(
-          JSON.stringify({
-            type: "quiz-reset",
-            payload: {
-              message:
-                "Quiz reset successfully. All players have been disconnected.",
-              playersCleared: playerSockets.length,
-            },
-          })
-        );
-      });
-    }
-  });
-
-  socket.on("close", () => {
-    const { roomCode, playerName, isAdmin } = socket;
-
-    if (roomCode && liveRooms[roomCode]) {
-      if (users[roomCode] && playerName && !isAdmin) {
-        users[roomCode] = users[roomCode].filter((u) => u.name !== playerName);
-        console.log(`Removed ${playerName} from users array on disconnect`);
-      }
-      // Remove the disconnected socket
-      liveRooms[roomCode] = liveRooms[roomCode].filter((s) => s !== socket);
-
-      // Get remaining players (exclude admins)
-      const remainingPlayers = liveRooms[roomCode]
-        .filter(
-          (client) =>
-            !client.isAdmin &&
-            client.playerName !== "__admin__" &&
-            !client.playerName?.startsWith("admin_")
-        )
-        .map((client) => client.playerName);
-
-      // Notify remaining clients about user leaving
-      if (playerName && !isAdmin) {
-        liveRooms[roomCode].forEach((client) => {
-          if (client.readyState === client.OPEN) {
-            client.send(
-              JSON.stringify({
-                type: "user-left",
-                payload: {
-                  playerName,
-                  players: remainingPlayers,
-                  totalPlayers: remainingPlayers.length,
-                },
-              })
-            );
-          }
-        });
-
-        console.log(`${playerName} left room ${roomCode}`);
-      }
-
-      // Clean up empty rooms
-      if (liveRooms[roomCode].length === 0) {
-        delete liveRooms[roomCode];
-        delete roomScores[roomCode];
-        console.log(`Room ${roomCode} deleted - no players remaining`);
-      }
-    }
-  });
-
-  // Handle unexpected disconnections
-  socket.on("error", (error) => {
-    console.error("WebSocket error:", error);
-    // Trigger the same cleanup as close event
-    socket.emit("close");
-  });
+server.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
 });
-
-module.exports = { users };

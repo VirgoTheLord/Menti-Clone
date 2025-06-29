@@ -1,18 +1,20 @@
-import { liveRooms } from "../state.js";
+// backend/wshandlers/joinHandler.js
+const { liveRooms } = require("../state");
 
-export function handleJoin(socket, { roomCode, playerName, isAdmin }) {
+function handleJoin(socket, payload) {
+  const { roomCode, playerName, isAdmin } = payload;
   socket.roomCode = roomCode;
   socket.playerName = playerName;
   socket.isAdmin = isAdmin || false;
 
   if (!liveRooms[roomCode]) liveRooms[roomCode] = [];
 
-  const existingIndex = liveRooms[roomCode].findIndex(
+  const existingPlayerIndex = liveRooms[roomCode].findIndex(
     (client) => client.playerName === playerName
   );
 
-  if (existingIndex !== -1) {
-    liveRooms[roomCode][existingIndex] = socket;
+  if (existingPlayerIndex !== -1) {
+    liveRooms[roomCode][existingPlayerIndex] = socket;
   } else {
     liveRooms[roomCode].push(socket);
   }
@@ -44,4 +46,4 @@ export function handleJoin(socket, { roomCode, playerName, isAdmin }) {
   console.log(`${playerName} joined room ${roomCode}`);
 }
 
-export default handleJoin;
+module.exports = handleJoin;
