@@ -16,12 +16,12 @@ const App = () => {
     <WebSocketProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="join-room" element={<JoinRoom />} />
+          <Route path="join-room/:id" element={<JoinRoom />} />
+          <Route path="quiz/:id" element={<Quiz />} />
           <Route path="/" element={<UserLayout />}>
             <Route index element={<Home />} />
             <Route path="dashboard" element={<Dashboard />} />
-            <Route path="join-room" element={<JoinRoom />} />
-            <Route path="join-room/:id" element={<JoinRoom />} />
-            <Route path="quiz/:id" element={<Quiz />} />
           </Route>
           <Route path="/create" element={<CreatorLayout />}>
             <Route index element={<CreatorHome />} />

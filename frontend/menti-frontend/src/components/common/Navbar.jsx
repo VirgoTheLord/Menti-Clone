@@ -15,6 +15,7 @@ import {
   SheetClose,
 } from "../ui/sheet";
 import { Menu } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -24,6 +25,11 @@ const navLinks = [
 ];
 
 const Navbar = () => {
+  const navigate = useNavigate();
+
+  const handleAdminToggle = () => {
+    navigate("/create");
+  };
   return (
     <header className="w-full bg-blue-200 text-black shadow-sm">
       <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-3 font-raleway">
@@ -34,7 +40,7 @@ const Navbar = () => {
         </div>
 
         <NavigationMenu>
-          <NavigationMenuList className="hidden space-x-4 md:flex">
+          <NavigationMenuList className="hidden space-x-4 mr-10 md:flex">
             {navLinks.map(({ href, label }) => (
               <NavigationMenuItem key={label}>
                 <NavigationMenuLink
@@ -53,9 +59,10 @@ const Navbar = () => {
             asChild
             variant="outline"
             size="lg"
-            className="bg-blue-500 text-white hover:bg-blue-600 hover:text-white rounded-full md:text-sm text-xs"
+            className="bg-blue-500 text-white hover:bg-blue-600 hover:text-white rounded-full md:text-sm text-xs cursor-pointer"
+            onClick={handleAdminToggle}
           >
-            <a href="/">Create</a>
+            <a>Create</a>
           </Button>
 
           <Sheet>
