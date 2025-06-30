@@ -10,6 +10,7 @@ import ActivityLog from "./ActivityLog";
 
 const QuizAdmin = () => {
   const { state } = useLocation();
+  //use the state to get room code and user name as it is in url params and query
   const {
     connectWebSocket,
     sendMessage,
@@ -34,8 +35,13 @@ const QuizAdmin = () => {
   const adminId = useRef(`admin_${Date.now()}`);
 
   const attemptValidation = () => {
+    //validation function
+
     try {
       sendMessage("validate-room", { code: roomCode, name: adminId.current });
+      //logger for me to see it on frontend as well
+      //handles some backend logvs and some frontend logs
+      //completely optional.
       logMessage("Attempting to validate existing admin session...");
     } catch (error) {
       logMessage(`Validation failed: ${error.message}`);
@@ -55,6 +61,9 @@ const QuizAdmin = () => {
       );
     } catch (error) {
       logMessage(`Join attempt failed: ${error.message}`);
+      //another settimeout i willl prolly have to delete soon
+      //even if admin joins it will still try to validate
+      //so i will have to remove this timeout
       if (connectionAttempts.current < maxRetries) {
         setTimeout(attemptAdminJoin, 2000);
       }
@@ -184,6 +193,9 @@ const QuizAdmin = () => {
     ) {
       const initAdmin = () => {
         attemptValidation();
+        //oo here is the issue i should techically remove it
+        //ideally we should check if admin is already joined
+        //and then not call this function
 
         setTimeout(() => {
           if (!adminJoined) {
@@ -191,6 +203,7 @@ const QuizAdmin = () => {
           }
         }, 2000);
       };
+      //another smtg we can avoid
 
       const timer = setTimeout(initAdmin, 1000);
       return () => clearTimeout(timer);
@@ -207,8 +220,13 @@ const QuizAdmin = () => {
 
   const logMessage = (msg) => {
     const timestamp = new Date().toLocaleTimeString();
+    //set prev log data to this data using timesatnd and msg for live logs
+    //ai suggestion for frontend debugging and ease of undersatnding,
+    //optional but useful
     setLog((prev) => [...prev, `[${timestamp}] ${msg}`]);
   };
+  //ensure sending of message only when websocket connection exists
+  //and admin has joined the room
 
   const safeSendMessage = (type, payload) => {
     if (!connected) {
@@ -241,6 +259,8 @@ const QuizAdmin = () => {
   };
 
   const handleNext = () => {
+    //currently just add 1
+    //actually should only run until the questions.length parameter--- to update later
     const nextQuestionId = currentQuestionId + 1;
     if (
       safeSendMessage("admin-next-question", { roomCode, qid: nextQuestionId })

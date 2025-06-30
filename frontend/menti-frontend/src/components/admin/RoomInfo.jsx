@@ -36,18 +36,18 @@ const RoomInfo = ({
         <span className="font-medium">Connection:</span>{" "}
         <span className={getStatusClass(connectionState)}>
           {connectionState === "connected"
-            ? "Connected ✅"
+            ? "Connected"
             : connectionState === "connecting"
             ? "Connecting..."
             : connectionState === "error"
-            ? "Connection Error ❌"
+            ? "Connection Error"
             : "Disconnected"}
         </span>
       </div>
       <div>
         <span className="font-medium">Admin Status:</span>{" "}
         <span className={adminJoined ? "text-green-400" : "text-yellow-400"}>
-          {adminJoined ? "Joined ✅" : "Joining..."}
+          {adminJoined ? "Joined" : "Joining..."}
         </span>
       </div>
       <div>

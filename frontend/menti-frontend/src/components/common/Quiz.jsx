@@ -38,7 +38,7 @@ const Quiz = () => {
   const [leaderboard, setLeaderboard] = useState(null);
   const [showLeaderboard, setShowLeaderboard] = useState(false);
 
-  // Function to save current state to localStorage
+  // concurrent save to save reloads
   const saveGameState = (updates = {}) => {
     const currentState = {
       qid,
@@ -50,26 +50,25 @@ const Quiz = () => {
       quizStarted,
       showResult,
       waitingForNext,
-      timestamp: Date.now(), // Add timestamp to track when state was saved
+      timestamp: Date.now(), //timestamp for freshness check
       ...updates,
     };
 
     localStorage.setItem(`quiz-${roomCode}`, JSON.stringify(currentState));
   };
-
-  // Function to clear game state
+  //clear after end
   const clearGameState = () => {
     localStorage.removeItem(`quiz-${roomCode}`);
   };
 
-  // Load saved state only if it's recent (within last 30 seconds)
+  //smtg i made with ai to checl age of saved state and not use ti if its old
+  //but dont really think its needed
   useEffect(() => {
     const saved = JSON.parse(localStorage.getItem(`quiz-${roomCode}`));
     if (saved && saved.timestamp) {
       const timeSinceLastSave = Date.now() - saved.timestamp;
-      const maxAllowedAge = 30000; // 30 seconds
+      const maxAllowedAge = 30000;
 
-      // Only restore state if it's recent
       if (timeSinceLastSave < maxAllowedAge) {
         if (saved.quizCompleted) {
           setQuizCompleted(true);
@@ -86,15 +85,16 @@ const Quiz = () => {
           if (saved.question) setQuestion(saved.question);
         }
       } else {
-        // Clear old state
         clearGameState();
       }
     }
   }, [roomCode]);
 
   useEffect(() => {
+    //connect
     if (!roomCode || !playerName) return;
     connectWebSocket(roomCode);
+    //handlemessage fn to pass to addMessageHandler
 
     const handleMessage = (event) => {
       try {
@@ -105,9 +105,9 @@ const Quiz = () => {
             setWaitingForStart(false);
             saveGameState({ quizStarted: true, waitingForStart: false });
             break;
+          //easy to understand reset logic to account for admin sending each qn
 
           case "new-question":
-            // Reset all question-related state for new question
             setQuestion(data.payload);
             setQid(data.payload.id);
             setTimeLeft(10);
@@ -120,7 +120,6 @@ const Quiz = () => {
             setWaitingForStart(false);
             if (data.totalQuestions) setTotalQuestions(data.totalQuestions);
 
-            // Save the fresh state
             saveGameState({
               qid: data.payload.id,
               question: data.payload,
@@ -183,9 +182,8 @@ const Quiz = () => {
             setPlayers(remainingPlayers);
             console.log(`${data.payload.playerName} left the room`);
             break;
-
+          //this case was optioonal but it was fun to make, it was an ai suggestion,
           case "quiz-reset":
-            // Clear all state when quiz is reset
             clearGameState();
             if (data.payload.shouldReconnect) {
               navigate(`/join-room?code=${roomCode}`);
@@ -207,6 +205,9 @@ const Quiz = () => {
     const removeHandler = addMessageHandler(handleMessage);
 
     if (connected) {
+      //one thing i got to fix
+      //constant sends of join with a 100ms delay
+      //got to verride this soon
       const joinTimeout = setTimeout(() => {
         sendMessage("join", { roomCode, playerName });
       }, 100);
@@ -227,19 +228,19 @@ const Quiz = () => {
     timeLeft,
   ]);
 
-  // Timer effect with state saving
   useEffect(() => {
     let interval;
+    //dk if is efficient but since its temporary and its concurrency i decided to keep it
     if (timerActive && timeLeft > 0) {
       interval = setInterval(() => {
         setTimeLeft((t) => {
           const newTime = t - 1;
-          // Save state every second during active timer
           saveGameState({ timeLeft: newTime });
           return newTime;
         });
       }, 1000);
     }
+    //if timer ends auto submit
     if (timeLeft === 0 && timerActive) {
       setTimerActive(false);
       handleSubmit();
@@ -256,10 +257,11 @@ const Quiz = () => {
   };
 
   const handleEndQuiz = () => {
-    // Send leave message before cleaning up
+    //send leave for backend updation
     if (connected && roomCode && playerName) {
       sendMessage("leave", { roomCode, playerName });
     }
+    //resets all state and disconnects
 
     clearGameState();
     setShowLeaderboard(false);
@@ -267,10 +269,9 @@ const Quiz = () => {
     navigate("/");
   };
 
-  // Handle component cleanup and user leaving
   useEffect(() => {
     const handleBeforeUnload = () => {
-      // Send leave message when user closes tab/refreshes
+      //uses connected state to ensure connection is still active and roomc and playerName
       if (connected && roomCode && playerName) {
         sendMessage("leave", { roomCode, playerName });
       }
@@ -279,14 +280,16 @@ const Quiz = () => {
     window.addEventListener("beforeunload", handleBeforeUnload);
 
     return () => {
+      //cleanup of event listener
       window.removeEventListener("beforeunload", handleBeforeUnload);
 
-      // Send leave message when component unmounts (navigation)
+      //leave to ensure consisten backend updation and state check
+
       if (connected && roomCode && playerName) {
         sendMessage("leave", { roomCode, playerName });
       }
 
-      // Only clear state if quiz is not in progress or user is intentionally leaving
+      //clear only if ended and left
       if (quizCompleted || !quizStarted) {
         clearGameState();
       }

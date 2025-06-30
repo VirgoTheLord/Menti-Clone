@@ -19,7 +19,6 @@ const Footer = () => {
   return (
     <footer className="bg-[#001a4e] text-white py-12 px-4 md:px-12">
       <div className="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-5 gap-12">
-        {/* Logo + Social Icons */}
         <div className="space-y-6 col-span-1">
           <div className="text-2xl font-bold">MandiMeter</div>
           <div className="flex gap-3">
@@ -45,7 +44,6 @@ const Footer = () => {
           </div>
         </div>
 
-        {/* Link Columns */}
         {Object.entries(footerLinks).map(([heading, links]) => (
           <div key={heading}>
             <h4 className="font-semibold text-white underline underline-offset-4 mb-4">
@@ -62,7 +60,6 @@ const Footer = () => {
         ))}
       </div>
 
-      {/* Bottom copyright bar */}
       <div className="border-t border-gray-700 mt-12 pt-4 text-sm text-gray-400 text-center">
         &copy; {new Date().getFullYear()} MandiMeter. All rights reserved.
       </div>

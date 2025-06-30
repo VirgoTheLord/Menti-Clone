@@ -16,34 +16,45 @@ const JoinRoom = () => {
   const { id: urlRoomCode } = useParams();
   const { connectWebSocket, sendMessage, connected, addMessageHandler } =
     useWebSocket();
-
+  //url room code present in url, entered using code then sets this based on this new things are shown like the link and this
   useEffect(() => {
     if (urlRoomCode) setRoomCode(urlRoomCode);
   }, [urlRoomCode]);
 
+  //this use effect handles incoming WebSocket messages
+
   useEffect(() => {
     const handleWebSocketMessage = (message) => {
       try {
+        //parse message data
         const data = JSON.parse(message.data);
+
+        //if we get validation respoonse we are returnde a boolean check
 
         if (data.type === "validation-response") {
           const { valid, message } = data.payload;
+          //if not valid error
           if (!valid) {
             setError(message);
             setLoading(false);
           } else {
+            //else we are valid and can join the room
             sendMessage("join", {
               roomCode,
               playerName: name,
             });
           }
         }
+        //now for user-joined
 
         if (data.type === "user-joined") {
+          //we get the active players by filtering out th admin and set it
           const activePlayers = data.payload.players.filter(
             (p) => p !== "__admin__" && !p.startsWith("admin_")
           );
           setPlayers(activePlayers);
+
+          //now since we are part of the active players after validation we can add name to url since we add query param we use encode uricomponent
 
           if (activePlayers.includes(name.trim())) {
             navigate(`/quiz/${roomCode}?name=${encodeURIComponent(name)}`);
@@ -53,11 +64,14 @@ const JoinRoom = () => {
         console.error("WebSocket message error:", err);
       }
     };
+    //declare removehandler
 
     let removeHandler;
+    //if connected is true we add the message handler which will use our function to handle the message
     if (connected) {
       removeHandler = addMessageHandler(handleWebSocketMessage);
     }
+    //cleanup
 
     return () => {
       if (removeHandler) removeHandler();
@@ -65,6 +79,8 @@ const JoinRoom = () => {
   }, [connected, name, roomCode, navigate, sendMessage, addMessageHandler]);
 
   const handleSubmit = (e) => {
+    //submit handling
+    //prevent defoult to prevent refresh
     e.preventDefault();
     setError("");
 
@@ -85,6 +101,9 @@ const JoinRoom = () => {
 
     setLoading(true);
     connectWebSocket(trimmedCode);
+
+    //connection function
+    //uses ready state to check for socket state which ensures correct message is sent to bakcend
 
     const waitForConnection = () => {
       const socket = window.WebSocketInstance;
@@ -178,14 +197,13 @@ const JoinRoom = () => {
               </button>
             )}
           </form>
-
           <p className="text-xs text-gray-500 text-center">
             WebSocket Status:{" "}
             <span className={connected ? "text-green-600" : "text-red-500"}>
               {connected ? "Connected" : "Disconnected"}
             </span>
           </p>
-
+          //this is the players list which will show the players in the room
           {players.length > 0 && (
             <div className="mt-4 bg-blue-50 border border-blue-200 rounded-md p-4">
               <p className="text-sm font-semibold text-blue-900 mb-2">

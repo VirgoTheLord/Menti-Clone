@@ -5,7 +5,7 @@ const { WebSocketServer } = require("ws");
 const connectDB = require("./config/db");
 const fetchQuestionRouter = require("./routes/fetchQuestionRoute");
 const quizRouter = require("./routes/quizRoute");
-const questions = require("./data/questions");
+// const questions = require("./data/questions");
 
 const handleJoin = require("./wshandlers/joinHandler");
 const handleValidateRoom = require("./wshandlers/validateRoomHandler");
@@ -24,7 +24,7 @@ const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-connectDB();
+// connectDB();
 
 app.use("/api/fetch-question", fetchQuestionRouter);
 app.use("/api/quiz", quizRouter);
@@ -75,11 +75,15 @@ app.post("/api/validate-room-code", (req, res) => {
   res.json({ valid: true, message: "Room joined successfully." });
 });
 
+//websocket handling starts here
 wss.on("connection", (socket) => {
+  //for every socket
   socket.on("message", (message) => {
+    //we have to parse to use the message
     const data = JSON.parse(message);
     const { type, payload } = data;
 
+    //use a switch the handle the message types
     switch (type) {
       case "join":
         handleJoin(socket, payload);
